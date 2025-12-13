@@ -18,7 +18,8 @@ A lightweight, production-ready Python HTTPS server for downloading videos from 
 
 ## 📋 Requirements
 
-- **Python**: 3.9 or higher (tested with 3.13.1)
+- **Python**: 3.9 - 3.13 (recommended: 3.12 or 3.13)
+  - ⚠️ **Python 3.14 is NOT supported** - It's in alpha/beta and many dependencies (pydantic, uvicorn) don't support it yet
 - **Operating System**: macOS, Linux, or Raspberry Pi OS
 - **Disk Space**: Variable (depends on downloaded videos)
 - **Network**: Internet connection for downloads
@@ -309,8 +310,20 @@ cp data/downloads.db data/backups/downloads_$(date +%Y%m%d).db
 
 ## 🐛 Troubleshooting
 
+### Issue: PyO3 version error during pip install
+**Error:** `the configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)`
+
+**Solution:** Use Python 3.12 or 3.13 instead of 3.14:
+```bash
+# macOS with Homebrew
+brew install python@3.12
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
 ### Issue: Server won't start
-- Check Python version: `python --version` (requires 3.9+)
+- Check Python version: `python --version` (requires 3.9-3.13)
 - Verify port 8443 is available: `lsof -i :8443`
 - Check certificate files exist: `ls -la certs/`
 
