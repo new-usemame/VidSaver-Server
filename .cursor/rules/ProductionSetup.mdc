@@ -1,0 +1,598 @@
+---
+alwaysApply: false
+---
+# Production Setup Workflow - Server Mac Deployment
+
+## Overview
+This workflow automates the production deployment of the Video Download Server on a new Mac (production/server Mac) after cloning from Git. It handles all setup steps including environment configuration, database initialization, SSL certificates, and auto-start configuration.
+
+## Prerequisites
+- ✅ Git repository cloned to production Mac
+- ✅ Python 3.11+ installed
+- ✅ Internet connection
+- ✅ Domain name ready
+- ✅ DNS configured (A record pointing to server's public IP)
+- ✅ Router port forwarding configured (port 8443)
+
+## What Git Excludes (from .gitignore)
+The following files/directories are NOT in the repository and must be created:
+- `venv/` - Virtual environment (will create)
+- `data/*.db` - Database files (will initialize)
+- `logs/*.log` - Log files (auto-created by app)
+- `certs/*.key, certs/*.crt` - SSL certificates (will obtain)
+- `config/config.yaml` - Configuration file (will create from example)
+- `.env` - Environment variables (optional)
+- `Downloads/` - Download directory (auto-created)
+
+## Workflow Execution
+
+### Step 0: Pre-Flight Checks
+**Before starting, verify:**
+1. Current working directory is the project root
+2. User has provided necessary information:
+   - Domain name (e.g., `videos.example.com`)
+   - Email address (for Let's Encrypt)
+   - Desired downloads directory path
+
+**Action Items:**
+- Ask user for domain name
+- Ask user for email address
+- Ask user for downloads directory (default: `~/Downloads/VideoServer`)
+- Confirm Python version is 3.11+
+- Verify required files exist: `requirements.txt`, `config/config.yaml.example`, `scripts/`
+
+### Step 1: Environment Setup
+**Goal:** Create isolated Python environment and install dependencies
+
+**Tasks:**
+1. Create virtual environment:
+   ```bash
+   python3 -m venv venv
+   ```
+
+2. Activate virtual environment (for subsequent commands):
+   ```bash
+   source venv/bin/activate
+   ```
+
+3. Upgrade pip:
+   ```bash
+   pip install --upgrade pip
+   ```
+
+4. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+5. Verify critical packages installed:
+   - fastapi
+   - uvicorn
+   - yt-dlp
+   - pydantic
+   - pyyaml
+
+**Success Criteria:**
+- `venv/` directory exists
+- All packages in `requirements.txt` installed successfully
+- `pip list` shows all required packages
+
+**On Failure:**
+- Check Python version
+- Check internet connection
+- Check if pip needs updating
+- Document error in `.cursor/docs/Bug_tracking.md`
+
+### Step 2: Configuration Setup
+**Goal:** Create production configuration file from template
+
+**Tasks:**
+1. Read `config/config.yaml.example` to understand structure
+
+2. Create `config/config.yaml` with production values:
+   - `app.environment`: "Production"
+   - `server.host`: "0.0.0.0"
+   - `server.port`: 8443
+   - `server.reload`: false
+   - `ssl.use_letsencrypt`: true
+   - `ssl.domain`: [USER PROVIDED]
+   - `ssl.email`: [USER PROVIDED]
+   - `ssl.cert_file`: "certs/fullchain.pem"
+   - `ssl.key_file`: "certs/privkey.pem"
+   - `downloads.output_directory`: [USER PROVIDED OR DEFAULT]
+   - `downloads.max_concurrent`: 1
+   - `database.path`: "data/downloads.db"
+   - `logging.level`: "INFO"
+
+3. Verify configuration file syntax (valid YAML)
+
+4. Ensure sensitive config is not accidentally committed:
+   ```bash
+   git check-ignore config/config.yaml
+   # Should output: config/config.yaml (confirming it's ignored)
+   ```
+
+**Success Criteria:**
+- `config/config.yaml` exists
+- All required fields populated
+- Valid YAML syntax
+- Domain and email match user input
+
+**On Failure:**
+- Re-read config.yaml.example
+- Validate YAML syntax
+- Ask user to verify domain/email input
+
+### Step 3: Directory Structure
+**Goal:** Ensure all required directories exist
+
+**Tasks:**
+1. Create directories that may not exist in Git:
+   ```bash
+   mkdir -p data
+   mkdir -p logs
+   mkdir -p certs
+   mkdir -p config
+   mkdir -p scripts
+   mkdir -p tests
+   ```
+
+2. Create downloads output directory (from config):
+   ```bash
+   mkdir -p [USER PROVIDED DOWNLOADS PATH]
+   ```
+
+3. Verify directory permissions (should be writable)
+
+**Success Criteria:**
+- All directories exist
+- All directories are writable
+- Downloads directory created at specified path
+
+### Step 4: Database Initialization
+**Goal:** Create and initialize SQLite database
+
+**Tasks:**
+1. Verify `scripts/init_database.py` exists
+
+2. Run database initialization script:
+   ```bash
+   python scripts/init_database.py
+   ```
+
+3. Verify database file created: `data/downloads.db`
+
+4. Verify database schema by checking for tables:
+   ```bash
+   sqlite3 data/downloads.db ".tables"
+   # Should show: downloads, schema_versions
+   ```
+
+**Success Criteria:**
+- `data/downloads.db` file exists
+- Database contains required tables
+- Script completes without errors
+- Database schema version is current
+
+**On Failure:**
+- Check if data/ directory is writable
+- Verify Python can import required modules
+- Check logs for database errors
+- Document in Bug_tracking.md
+
+### Step 5: SSL Certificate Setup (Let's Encrypt)
+**Goal:** Obtain valid SSL certificates from Let's Encrypt
+
+**Prerequisites Check:**
+1. Verify DNS is pointing to this server:
+   ```bash
+   dig +short [DOMAIN]
+   # Should return server's public IP
+   ```
+
+2. Verify port 80 and 443 are accessible (for Certbot challenge)
+
+3. Verify Certbot will be installed (check if it exists first)
+
+**Tasks:**
+1. Make setup script executable:
+   ```bash
+   chmod +x scripts/setup_letsencrypt.sh
+   ```
+
+2. Run Let's Encrypt setup script:
+   ```bash
+   sudo bash scripts/setup_letsencrypt.sh [DOMAIN] [EMAIL]
+   ```
+
+3. Script will:
+   - Install Certbot (if not present)
+   - Request SSL certificate using HTTP-01 challenge
+   - Copy certificates to `certs/` directory
+   - Set up auto-renewal cron job
+
+4. Verify certificates exist:
+   - `certs/fullchain.pem`
+   - `certs/privkey.pem`
+
+5. Verify certificate validity:
+   ```bash
+   openssl x509 -in certs/fullchain.pem -text -noout | grep "Not After"
+   ```
+
+6. Test certificate expiration (should be ~90 days):
+   ```bash
+   openssl x509 -in certs/fullchain.pem -noout -enddate
+   ```
+
+**Success Criteria:**
+- Both certificate files exist in `certs/`
+- Certificates are valid (not expired)
+- Certificates match the domain
+- Auto-renewal configured
+
+**On Failure:**
+- Check DNS propagation: `dig [DOMAIN]`
+- Verify firewall allows ports 80 and 443
+- Check Certbot logs: `sudo cat /var/log/letsencrypt/letsencrypt.log`
+- Consider using DNS challenge instead of HTTP challenge
+- Document issue in Bug_tracking.md
+
+**Alternative (Development/Testing):**
+If Let's Encrypt fails and user wants to proceed with self-signed:
+1. Run: `bash scripts/generate_selfsigned.sh [DOMAIN]`
+2. Update config: `ssl.use_letsencrypt: false`
+3. Warn user: iOS will require manual certificate trust
+
+### Step 6: Firewall Configuration
+**Goal:** Ensure macOS firewall allows incoming connections
+
+**Tasks:**
+1. Check if firewall is enabled:
+   ```bash
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+   ```
+
+2. If enabled, allow Python:
+   ```bash
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(which python3)
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp $(which python3)
+   ```
+
+3. Inform user about router port forwarding requirements:
+   - Port 8443 must be forwarded to this Mac's local IP
+   - Provide Mac's local IP: `ifconfig | grep "inet " | grep -v 127.0.0.1`
+
+**Success Criteria:**
+- Firewall configured (if enabled)
+- User informed about port forwarding
+
+**Notes:**
+- Cannot automatically configure router - requires user action
+- Document router requirements clearly
+
+### Step 7: Initial Server Test
+**Goal:** Verify server starts and responds correctly
+
+**Tasks:**
+1. Start server in foreground (for testing):
+   ```bash
+   python server.py
+   ```
+
+2. Wait 5 seconds for server to initialize
+
+3. In a separate process, test health endpoint:
+   ```bash
+   curl -k https://localhost:8443/api/v1/health
+   ```
+
+4. Verify response:
+   - Status code: 200
+   - JSON response with `"status": "healthy"`
+   - Database connection confirmed
+
+5. Test from server's public IP (if available):
+   ```bash
+   curl https://[DOMAIN]:8443/api/v1/health
+   ```
+
+6. Stop server (Ctrl+C or SIGTERM)
+
+**Success Criteria:**
+- Server starts without errors
+- Health endpoint responds with 200 OK
+- Database connection successful
+- SSL working (no certificate errors with curl)
+
+**On Failure:**
+- Check logs: `tail -f logs/server.log`
+- Verify port 8443 is not in use: `lsof -i :8443`
+- Check certificate paths in config
+- Verify database exists
+- Document error in Bug_tracking.md
+
+### Step 8: Auto-Start Configuration (launchd)
+**Goal:** Configure server to start automatically on boot
+
+**Tasks:**
+1. Get current user's username:
+   ```bash
+   whoami
+   ```
+
+2. Get absolute paths:
+   - Project directory: `pwd`
+   - Python executable: `./venv/bin/python`
+
+3. Create Launch Agent plist file:
+   - Location: `~/Library/LaunchAgents/com.videodownload.server.plist`
+   - Content: XML plist with:
+     - Label: `com.videodownload.server`
+     - Program: `[PROJECT_DIR]/venv/bin/python`
+     - Arguments: `[PROJECT_DIR]/server.py`
+     - WorkingDirectory: `[PROJECT_DIR]`
+     - RunAtLoad: true
+     - KeepAlive: true
+     - StandardOutPath: `[PROJECT_DIR]/logs/launchd.out.log`
+     - StandardErrorPath: `[PROJECT_DIR]/logs/launchd.err.log`
+
+4. Load launch agent:
+   ```bash
+   launchctl load ~/Library/LaunchAgents/com.videodownload.server.plist
+   ```
+
+5. Verify it's loaded:
+   ```bash
+   launchctl list | grep videodownload
+   ```
+
+6. Start service:
+   ```bash
+   launchctl start com.videodownload.server
+   ```
+
+7. Wait 5 seconds, then test:
+   ```bash
+   curl -k https://localhost:8443/api/v1/health
+   ```
+
+**Success Criteria:**
+- Launch agent plist created
+- Service loaded successfully
+- Service starts automatically
+- Health endpoint responds
+- Service will restart if it crashes
+- Service starts on boot
+
+**On Failure:**
+- Check plist syntax: `plutil ~/Library/LaunchAgents/com.videodownload.server.plist`
+- Check launchd logs: `tail -f logs/launchd.err.log`
+- Verify paths are absolute
+- Test starting manually first
+- Document in Bug_tracking.md
+
+### Step 9: Verification & Testing
+**Goal:** Comprehensive testing of production deployment
+
+**Tasks:**
+1. **System Status Check:**
+   ```bash
+   launchctl list | grep videodownload  # Should show running
+   ps aux | grep server.py              # Should show process
+   ```
+
+2. **API Endpoints Test:**
+   - Health: `curl https://localhost:8443/api/v1/health`
+   - History: `curl https://localhost:8443/api/v1/history`
+   - Test download submission:
+     ```bash
+     curl -X POST https://localhost:8443/api/v1/download \
+       -H "Content-Type: application/json" \
+       -d '{"url":"https://www.tiktok.com/@test/video/123","client_id":"setup-test"}'
+     ```
+
+3. **Certificate Verification:**
+   ```bash
+   openssl s_client -connect localhost:8443 -servername [DOMAIN]
+   # Should show valid certificate chain
+   ```
+
+4. **Log Files Check:**
+   ```bash
+   tail -20 logs/server.log            # Should show startup logs
+   tail -20 logs/launchd.out.log       # Should show no errors
+   tail -20 logs/launchd.err.log       # Should be empty or minimal
+   ```
+
+5. **Database Check:**
+   ```bash
+   sqlite3 data/downloads.db "SELECT COUNT(*) FROM downloads;"
+   # Should return count (0 or more)
+   ```
+
+6. **External Access Test (if possible):**
+   - From different device on same network
+   - From iOS device (Safari): `https://[DOMAIN]:8443/api/v1/health`
+
+**Success Criteria:**
+- All API endpoints respond correctly
+- SSL certificate valid and trusted
+- Logs show healthy operation
+- Database accessible
+- External access works (if tested)
+
+**On Failure:**
+- Check specific component that failed
+- Review relevant logs
+- Re-run failed setup step
+- Document in Bug_tracking.md
+
+### Step 10: Final Documentation
+**Goal:** Document production deployment details
+
+**Tasks:**
+1. Create deployment record file: `.cursor/docs/DEPLOYMENT_INFO.md`
+
+2. Document:
+   - Deployment date/time
+   - Server hostname/domain
+   - Python version used
+   - Package versions (from `pip freeze`)
+   - SSL certificate expiration date
+   - Configuration summary (no secrets)
+   - Access URLs
+   - Useful commands for management
+
+3. Update `.cursor/docs/Bug_tracking.md` with any issues encountered
+
+4. Create quick reference commands file for user
+
+**Success Criteria:**
+- Deployment documented
+- User has reference guide for management
+- Any issues logged in Bug_tracking
+
+---
+
+## Post-Setup Management Commands
+
+### Server Control
+```bash
+# Start server
+launchctl start com.videodownload.server
+
+# Stop server
+launchctl stop com.videodownload.server
+
+# Restart server
+launchctl stop com.videodownload.server && launchctl start com.videodownload.server
+
+# Check status
+launchctl list | grep videodownload
+```
+
+### Monitoring
+```bash
+# View live logs
+tail -f logs/server.log
+
+# View recent errors
+grep ERROR logs/server.log | tail -20
+
+# Check launchd logs
+tail -f logs/launchd.out.log
+tail -f logs/launchd.err.log
+
+# View downloads
+ls -lh ~/Downloads/VideoServer/
+```
+
+### Maintenance
+```bash
+# Update code (if using git)
+git pull
+launchctl stop com.videodownload.server
+launchctl start com.videodownload.server
+
+# Backup database
+cp data/downloads.db data/downloads.db.backup
+
+# Check certificate expiration
+openssl x509 -in certs/fullchain.pem -noout -enddate
+
+# Renew certificate manually
+sudo certbot renew
+sudo cp /etc/letsencrypt/live/[DOMAIN]/fullchain.pem certs/
+sudo cp /etc/letsencrypt/live/[DOMAIN]/privkey.pem certs/
+sudo chown $(whoami) certs/*.pem
+launchctl stop com.videodownload.server
+launchctl start com.videodownload.server
+```
+
+---
+
+## Error Recovery
+
+### Server Won't Start
+1. Check logs: `tail -f logs/server.log`
+2. Check port availability: `lsof -i :8443`
+3. Verify certificates: `ls -la certs/`
+4. Test manual start: `source venv/bin/activate && python server.py`
+5. Check config syntax: `python -c "import yaml; yaml.safe_load(open('config/config.yaml'))"`
+
+### SSL Certificate Issues
+1. Verify DNS: `dig +short [DOMAIN]`
+2. Check certificate files exist: `ls -la certs/`
+3. Test certificate: `openssl x509 -in certs/fullchain.pem -text -noout`
+4. Re-run setup: `sudo bash scripts/setup_letsencrypt.sh [DOMAIN] [EMAIL]`
+
+### Database Issues
+1. Check file exists: `ls -la data/downloads.db`
+2. Check permissions: `ls -ld data/`
+3. Verify schema: `sqlite3 data/downloads.db ".schema"`
+4. Re-initialize if needed: `python scripts/init_database.py`
+
+### Can't Access from External Network
+1. Verify DNS: `dig +short [DOMAIN]` (should show correct public IP)
+2. Test local access first: `curl https://localhost:8443/api/v1/health`
+3. Check firewall: `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate`
+4. Verify router port forwarding (port 8443 → Mac's local IP)
+5. Test with online port checker: https://www.yougetsignal.com/tools/open-ports/
+
+---
+
+## Critical Reminders
+
+1. **NEVER commit** `config/config.yaml` - contains domain/email
+2. **ALWAYS backup** database before updates: `cp data/downloads.db data/downloads.db.backup`
+3. **Monitor certificate expiration** - auto-renewal should work, but verify monthly
+4. **Keep yt-dlp updated** - run `pip install --upgrade yt-dlp` monthly
+5. **Monitor disk space** - downloads can accumulate
+6. **Review logs weekly** - check for errors or issues
+7. **Test from iOS** - after any updates, verify iOS compatibility
+
+---
+
+## Success Indicators
+
+✅ **Deployment Complete When:**
+- Server responds to `curl https://[DOMAIN]:8443/api/v1/health`
+- SSL certificate is valid (no warnings in browser/iOS)
+- Server starts automatically on boot
+- Database initialized and accessible
+- Logs show healthy operation
+- iOS device can connect without certificate errors
+- Download worker is running
+- All configuration files created
+- Auto-start configured and tested
+
+---
+
+## Workflow Execution Summary
+
+**When user says:** "Perform @ProductionSetup.mdc"
+
+**You should:**
+1. Confirm you're on the production/server Mac (not dev Mac)
+2. Confirm current directory is project root
+3. Ask user for: domain, email, downloads directory
+4. Execute Steps 0-10 in order
+5. Handle errors gracefully (don't stop on first error)
+6. Document everything in DEPLOYMENT_INFO.md
+7. Provide summary of what was configured
+8. Give user the management commands
+9. Confirm final success indicators
+
+**Time Estimate:** 15-30 minutes (depending on DNS propagation and Certbot)
+
+**User Interaction Required:**
+- Provide domain name
+- Provide email address
+- Confirm downloads directory
+- May need sudo password for Certbot
+- May need to configure router port forwarding (cannot automate)
+
+---
+
+**This workflow transforms a fresh Git clone into a fully operational production server with zero manual configuration beyond initial prompts.**

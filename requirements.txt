@@ -1,0 +1,56 @@
+# Video Download Server - Python Dependencies
+# Generated: November 2025
+
+# ============================================
+# Core Web Framework
+# ============================================
+fastapi==0.115.0           # Modern async web framework
+uvicorn[standard]==0.32.0  # ASGI server with SSL support
+pydantic==2.9.2            # Data validation
+pydantic-settings==2.6.0   # Settings management with env var support
+
+# ============================================
+# Video Downloader
+# ============================================
+yt-dlp==2024.11.4          # Video downloader (supports TikTok, Instagram, 1000+ sites)
+
+# ============================================
+# Configuration Management
+# ============================================
+PyYAML==6.0.2              # YAML configuration file parsing
+
+# ============================================
+# HTTP Client
+# ============================================
+httpx==0.27.2              # Modern async HTTP client
+requests==2.32.3           # Requests library for network detection
+
+# ============================================
+# QR Code Generation
+# ============================================
+qrcode[pil]==7.4.2         # QR code generation
+Pillow==10.4.0             # Image library for QR codes
+
+# ============================================
+# Testing
+# ============================================
+pytest==8.3.3              # Testing framework
+pytest-asyncio==0.24.0     # Async test support
+pytest-cov==6.0.0          # Coverage reporting
+
+# ============================================
+# Code Quality (Development)
+# ============================================
+black==24.10.0             # Code formatter
+flake8==7.1.1              # Linter
+mypy==1.13.0               # Static type checker
+
+# ============================================
+# Standard Library (No installation needed)
+# ============================================
+# - sqlite3 (built-in)
+# - logging (built-in)
+# - threading (built-in)
+# - queue (built-in)
+# - uuid (built-in)
+

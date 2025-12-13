@@ -1,0 +1,158 @@
+# Video Download Server - Configuration File
+# Copy this file to config.yaml and customize for your environment
+
+# ============================================
+# Server Configuration
+# ============================================
+server:
+  # Network Access Level - Controls who can connect to your server
+  # Options:
+  #   "localhost" - Only accessible from this computer (127.0.0.1)
+  #   "local"     - Accessible on your local network (LAN) - RECOMMENDED
+  #   "public"    - Same as local, but indicates you plan to port forward for internet access
+  access_level: "local"
+  
+  # Server port number
+  port: 58443
+  
+  # ============================================
+  # SSL/TLS Configuration (OPTIONAL)
+  # ============================================
+  # By default, the server runs HTTP for simple local network usage.
+  # For iOS, add NSAllowsLocalNetworking=true to Info.plist (no certificate needed!)
+  #
+  # Enable SSL only if:
+  # - You want HTTPS encryption
+  # - You have a domain name (required for Let's Encrypt)
+  # - You need internet-facing deployment
+  
+  ssl:
+    # Enable SSL/TLS (false = HTTP, true = HTTPS)
+    enabled: false
+    
+    # Domain name for your server (REQUIRED if ssl.enabled is true and using Let's Encrypt)
+    # Point your domain's DNS A record to your server's IP address
+    # Example: "video.yourdomain.com" or "yourdomain.com"
+    domain: null  # Set this to your domain name
+    
+    # Use Let's Encrypt for automatic SSL certificates (recommended if SSL is enabled)
+    # When enabled, certificates are automatically obtained and renewed
+    # Requires: domain name and valid email address
+    use_letsencrypt: false
+    
+    # Email for Let's Encrypt notifications (certificate expiry warnings)
+    # REQUIRED if use_letsencrypt is true
+    letsencrypt_email: null  # Set this to your email
+    
+    # Manual SSL certificate paths (only used if ssl.enabled is true and use_letsencrypt is false)
+    # For Let's Encrypt, these are auto-managed
+    cert_file: "certs/server.crt"
+    key_file: "certs/server.key"
+
+# ============================================
+# Database Configuration
+# ============================================
+database:
+  # Path to SQLite database file
+  # Supports ~ for home directory expansion
+  path: "data/downloads.db"
+
+# ============================================
+# Downloads Configuration
+# ============================================
+downloads:
+  # Root directory for all user folders and downloaded content
+  # Supports ~ for home directory expansion
+  # Structure: {root_directory}/{username}/{genre}/
+  # Genres: tiktok, instagram, youtube, pdf, ebook, unknown
+  root_directory: "~/Downloads/VidSaver"
+  
+  # Maximum number of concurrent downloads (1-10)
+  # Setting to 1 is recommended for stability
+  max_concurrent: 1
+  
+  # Maximum number of retry attempts for failed downloads (0-10)
+  max_retries: 3
+  
+  # Delay in seconds between retries (exponential backoff)
+  # First retry after 60s, second after 300s (5min), third after 900s (15min)
+  retry_delays: [60, 300, 900]
+
+# ============================================
+# Video Downloader (yt-dlp) Configuration
+# ============================================
+downloader:
+  # Download rate limit (e.g., "1M" for 1MB/s, "500K" for 500KB/s)
+  # Set to null for unlimited
+  rate_limit: null
+  
+  # Enable user agent rotation to avoid detection/blocking
+  user_agent_rotation: true
+  
+  # Download timeout in seconds (10-3600)
+  timeout: 300
+  
+  # Optional: Path to cookie file for authenticated downloads
+  # Allows downloading private, age-restricted, or members-only content
+  # Export cookies from your browser using a cookie export extension like:
+  # - "Get cookies.txt LOCALLY" (Chrome/Firefox)
+  # - "cookies.txt" (Firefox)
+  # Example: cookie_file: "~/Downloads/cookies.txt"
+  # Leave as null if not needed
+  cookie_file: null
+
+# ============================================
+# Security Configuration
+# ============================================
+security:
+  # List of valid API keys for authentication
+  # Leave empty to disable API key authentication (not recommended for production)
+  # Generate secure random keys: openssl rand -hex 32
+  api_keys: []
+  # Example:
+  # api_keys:
+  #   - "your-secret-key-1"
+  #   - "your-secret-key-2"
+  
+  # Maximum requests per hour per client_id (1-10000)
+  rate_limit_per_client: 100
+  
+  # Whitelisted domains for video downloads
+  # Only URLs from these domains will be accepted
+  allowed_domains:
+    - "tiktok.com"
+    - "instagram.com"
+
+# ============================================
+# Logging Configuration
+# ============================================
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # Use DEBUG for development, INFO for production
+  level: "INFO"
+  
+  # Path to log file
+  file: "logs/server.log"
+  
+  # Maximum log file size before rotation
+  # Supports: B (bytes), KB (kilobytes), MB (megabytes), GB (gigabytes)
+  max_size: "10MB"
+  
+  # Number of backup log files to keep (0-100)
+  # Old log files are named: server.log.1, server.log.2, etc.
+  backup_count: 15
+
+# ============================================
+# Environment Variable Overrides
+# ============================================
+# You can override any configuration value using environment variables.
+# Format: VIDEO_SERVER_<SECTION>_<KEY>
+# 
+# Examples:
+#   export VIDEO_SERVER_SERVER_PORT=9443
+#   export VIDEO_SERVER_LOGGING_LEVEL=DEBUG
+#   export VIDEO_SERVER_DOWNLOADS_MAX_CONCURRENT=2
+#   export VIDEO_SERVER_SECURITY_API_KEYS='["key1","key2"]'
+#
+# Environment variables take precedence over this config file.
+
