@@ -44,11 +44,18 @@ pip install -r requirements.txt
 ### 2. Generate SSL Certificate
 
 ```bash
-# Run certificate generation script (to be created in Stage 3)
-./scripts/generate_cert.sh
+# RECOMMENDED: Use Let's Encrypt (requires a domain name pointing to your server)
+# iOS recognizes Let's Encrypt certificates as legitimate - no manual trust steps needed!
+sudo ./scripts/setup_letsencrypt.sh <your-domain> <your-email>
+# Example: sudo ./scripts/setup_letsencrypt.sh video.example.com admin@example.com
 
-# Or manually with OpenSSL
-openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt -days 365 -nodes
+# After Let's Encrypt setup, verify config.yaml has:
+#   domain: "your-domain.com"
+#   use_letsencrypt: true
+#   letsencrypt_email: "your-email@example.com"
+
+# ALTERNATIVE: Self-signed certificate (requires manual iOS trust setup)
+./scripts/generate_selfsigned.sh
 ```
 
 ### 3. Configure Server
@@ -60,6 +67,8 @@ cp config/config.yaml.example config/config.yaml
 # Edit configuration
 nano config/config.yaml
 ```
+
+> **Tip (Mac):** You can edit the configuration later using the Config Editor from the menubar app.
 
 ### 4. Initialize Database
 
@@ -358,7 +367,7 @@ pytest
 
 ```bash
 # Generate new certificate
-./scripts/generate_cert.sh
+./scripts/generate_selfsigned.sh
 
 # Restart server
 sudo systemctl restart video-server  # Linux
