@@ -166,7 +166,7 @@ class NetworkService:
         """Get complete network configuration information
         
         Args:
-            port: Server port number
+            port: Server port number (HTTPS port when SSL is enabled)
             ssl_enabled: Whether HTTPS is enabled
             use_letsencrypt: Whether using Let's Encrypt (domain-based SSL)
             
@@ -176,35 +176,44 @@ class NetworkService:
         lan_ip = await self.get_lan_ip()
         wan_ip = await self.get_wan_ip()
         
-        # For Let's Encrypt SSL, LAN must use HTTP since the cert is for the domain, not the IP
-        # For self-signed SSL (installed on device), both can use HTTPS
-        if ssl_enabled and use_letsencrypt:
-            # Let's Encrypt: LAN uses HTTP, domain/WAN uses HTTPS
+        # SSL certificates are issued for domain names, not IP addresses.
+        # When connecting via IP (LAN), HTTPS will fail certificate validation
+        # because the cert's CN/SAN won't match the IP address.
+        # 
+        # When SSL is enabled, we run DUAL SERVERS:
+        # - HTTPS on main port (e.g., 58443) for domain/WAN access
+        # - HTTP on main port - 1 (e.g., 58442) for LAN IP access
+        #
+        # This allows iOS to connect via HTTP on LAN while still supporting
+        # secure HTTPS connections via the domain name.
+        if ssl_enabled:
             lan_protocol = "http"
+            lan_port = port - 1  # HTTP server runs on port - 1
             wan_protocol = "https"
-        elif ssl_enabled:
-            # Self-signed: both use HTTPS (cert installed on device)
-            lan_protocol = "https"
-            wan_protocol = "https"
+            wan_port = port  # HTTPS server runs on main port
         else:
-            # No SSL: both use HTTP
             lan_protocol = "http"
+            lan_port = port
             wan_protocol = "http"
+            wan_port = port
         
         info = {
             "lan": {
                 "ip": lan_ip,
-                "url": f"{lan_protocol}://{lan_ip}:{port}",
+                "port": lan_port,
+                "url": f"{lan_protocol}://{lan_ip}:{lan_port}",
                 "protocol": lan_protocol,
                 "available": lan_ip != "127.0.0.1"
             },
             "wan": {
                 "ip": wan_ip,
-                "url": f"{wan_protocol}://{wan_ip}:{port}" if wan_ip else None,
+                "port": wan_port,
+                "url": f"{wan_protocol}://{wan_ip}:{wan_port}" if wan_ip else None,
                 "protocol": wan_protocol,
                 "available": wan_ip is not None
             },
-            "port": port,
+            "port": port,  # Primary/HTTPS port
+            "http_port": lan_port if ssl_enabled else port,  # HTTP port for LAN
             "protocol": wan_protocol,  # Primary protocol (for domain/WAN)
             "ssl_enabled": ssl_enabled,
             "use_letsencrypt": use_letsencrypt,

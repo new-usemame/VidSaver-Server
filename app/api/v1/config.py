@@ -352,9 +352,16 @@ async def get_setup_page():
                     </div>
                     
                     <div class="connection-item">
-                        <span class="connection-label">Port</span>
+                        <span class="connection-label">HTTPS Port (Domain)</span>
                         <div class="connection-value">
                             <span id="port">-</span>
+                        </div>
+                    </div>
+                    
+                    <div class="connection-item" id="http-port-item" style="display: none;">
+                        <span class="connection-label">HTTP Port (LAN)</span>
+                        <div class="connection-value">
+                            <span id="http-port">-</span>
                         </div>
                     </div>
                     
@@ -448,13 +455,21 @@ async def get_setup_page():
                 document.getElementById('wan-status').className = 'status-badge status-offline';
             }
             
-            // Port
+            // Ports
             document.getElementById('port').textContent = data.port;
             document.getElementById('port-forward').textContent = data.port;
             
+            // Show HTTP port if SSL is enabled (dual-server mode)
+            if (data.ssl_enabled && data.http_port && data.http_port !== data.port) {
+                document.getElementById('http-port-item').style.display = 'flex';
+                document.getElementById('http-port').textContent = data.http_port;
+            }
+            
             // Protocol
             const protocol = data.protocol.toUpperCase();
-            document.getElementById('protocol').textContent = protocol + (data.ssl_enabled ? ' (SSL)' : '');
+            document.getElementById('protocol').textContent = data.ssl_enabled 
+                ? `HTTPS (domain) / HTTP (LAN)` 
+                : protocol;
             
             // API Key
             if (data.api_key) {
@@ -2055,7 +2070,8 @@ async def get_connection_info():
             "domain": domain,  # Domain name (for Let's Encrypt SSL)
             "lan": network_info["lan"],
             "wan": network_info["wan"],
-            "port": port,
+            "port": port,  # Main/HTTPS port
+            "http_port": network_info.get("http_port", port),  # HTTP port for LAN (port-1 when SSL enabled)
             "protocol": network_info["protocol"],
             "ssl_enabled": ssl_enabled,
             "use_letsencrypt": use_letsencrypt,
@@ -2127,15 +2143,20 @@ async def get_qr_code(format: str = "png", size: int = 10):
         lan_protocol = network_info.get("lan", {}).get("protocol", "http")
         wan_protocol = network_info.get("wan", {}).get("protocol", "https" if ssl_enabled else "http")
         
+        # Get the correct ports for each connection type
+        lan_port = network_info.get('lan', {}).get('port', port)
+        wan_port = network_info.get('wan', {}).get('port', port)
+        
         qr_data = {
             "domain": domain,  # Domain name (for Let's Encrypt SSL)
-            "lan": f"{network_info['lan']['ip']}:{port}",
-            "lan_protocol": lan_protocol,  # Separate protocol for LAN (http for Let's Encrypt)
-            "wan": f"{network_info['wan']['ip']}:{port}" if network_info.get('wan', {}).get('ip') else None,
+            "domain_port": wan_port,  # Port for domain/HTTPS access
+            "lan": f"{network_info['lan']['ip']}:{lan_port}",
+            "lan_protocol": lan_protocol,  # Separate protocol for LAN (http when SSL enabled)
+            "wan": f"{network_info['wan']['ip']}:{wan_port}" if network_info.get('wan', {}).get('ip') else None,
             "wan_protocol": wan_protocol,  # Protocol for WAN/domain
             "protocol": wan_protocol,  # Default/primary protocol (for backwards compatibility)
             "key": api_key,
-            "v": "2.1"  # Bump version to indicate new protocol fields
+            "v": "2.2"  # Bump version to indicate dual-port support
         }
         
         # Encode as JSON

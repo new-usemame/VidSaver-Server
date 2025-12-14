@@ -204,25 +204,33 @@ def run_server():
     """Run the server with uvicorn
     
     This function is called from server.py
+    
+    When SSL is enabled, runs dual servers:
+    - HTTPS on configured port (for domain/WAN access)
+    - HTTP on configured port + 1 (for LAN access via IP)
     """
+    import threading
+    
     # Setup logging first
     setup_logging()
     
     # Get configuration
     config = get_config()
     
-    # Prepare uvicorn configuration
-    uvicorn_config = {
+    # Prepare base uvicorn configuration
+    base_config = {
         "app": "app.main:app",
         "host": config.server.host,
-        "port": config.server.port,
         "log_level": config.logging.level.lower(),
-        "reload": False,  # Set to True for development
+        "reload": False,
         "access_log": True,
     }
     
-    # Add SSL configuration if enabled
     if config.server.ssl.enabled:
+        # DUAL SERVER MODE: Run both HTTPS and HTTP
+        # - HTTPS on main port (for domain access)
+        # - HTTP on main port - 1 (for LAN IP access)
+        
         # Determine SSL certificate paths
         if config.server.ssl.use_letsencrypt and config.server.ssl.domain:
             from app.utils.cert_utils import get_letsencrypt_paths
@@ -231,11 +239,43 @@ def run_server():
             cert_path = config.server.ssl.cert_file
             key_path = config.server.ssl.key_file
         
-        uvicorn_config["ssl_keyfile"] = key_path
-        uvicorn_config["ssl_certfile"] = cert_path
-    
-    # Run uvicorn server
-    uvicorn.run(**uvicorn_config)
+        https_port = config.server.port
+        http_port = config.server.port - 1  # e.g., 58443 -> 58442
+        
+        # HTTPS server config
+        https_config = {
+            **base_config,
+            "port": https_port,
+            "ssl_keyfile": key_path,
+            "ssl_certfile": cert_path,
+        }
+        
+        # HTTP server config (for LAN access)
+        http_config = {
+            **base_config,
+            "port": http_port,
+        }
+        
+        logger.info(f"Starting dual-server mode:")
+        logger.info(f"  HTTPS: port {https_port} (for domain: {config.server.ssl.domain})")
+        logger.info(f"  HTTP:  port {http_port} (for LAN IP access)")
+        
+        # Run HTTP server in a background thread
+        def run_http_server():
+            uvicorn.run(**http_config)
+        
+        http_thread = threading.Thread(target=run_http_server, daemon=True)
+        http_thread.start()
+        
+        # Run HTTPS server in main thread
+        uvicorn.run(**https_config)
+    else:
+        # Single HTTP server
+        uvicorn_config = {
+            **base_config,
+            "port": config.server.port,
+        }
+        uvicorn.run(**uvicorn_config)
 
 
 if __name__ == "__main__":
