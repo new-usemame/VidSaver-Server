@@ -2018,15 +2018,20 @@ async def get_connection_info():
         # Get network info with error handling
         port = config.server.port
         ssl_enabled = config.server.ssl.enabled
+        use_letsencrypt = config.server.ssl.use_letsencrypt
         
         try:
-            network_info = await network_service.get_network_info(port=port, ssl_enabled=ssl_enabled)
+            network_info = await network_service.get_network_info(
+                port=port, 
+                ssl_enabled=ssl_enabled,
+                use_letsencrypt=use_letsencrypt
+            )
         except Exception as e:
             logger.warning(f"Network detection failed: {e}")
             # Provide fallback values
             network_info = {
-                "lan": {"ip": "127.0.0.1", "url": f"http://127.0.0.1:{port}", "available": False},
-                "wan": {"ip": None, "url": None, "available": False},
+                "lan": {"ip": "127.0.0.1", "url": f"http://127.0.0.1:{port}", "protocol": "http", "available": False},
+                "wan": {"ip": None, "url": None, "protocol": "https" if ssl_enabled else "http", "available": False},
                 "port": port,
                 "protocol": "https" if ssl_enabled else "http",
                 "detected_at": None,
@@ -2040,7 +2045,7 @@ async def get_connection_info():
         
         # Get domain if Let's Encrypt is enabled
         domain = None
-        if ssl_enabled and config.server.ssl.use_letsencrypt and config.server.ssl.domain:
+        if ssl_enabled and use_letsencrypt and config.server.ssl.domain:
             domain = config.server.ssl.domain
         
         # Build response
@@ -2053,6 +2058,7 @@ async def get_connection_info():
             "port": port,
             "protocol": network_info["protocol"],
             "ssl_enabled": ssl_enabled,
+            "use_letsencrypt": use_letsencrypt,
             "api_key": api_key,
             "supported_genres": ["tiktok", "instagram", "youtube", "pdf", "ebook"],
             "setup_timestamp": network_info["detected_at"]
@@ -2088,15 +2094,20 @@ async def get_qr_code(format: str = "png", size: int = 10):
         # Get network info with error handling
         port = config.server.port
         ssl_enabled = config.server.ssl.enabled
+        use_letsencrypt = config.server.ssl.use_letsencrypt
         
         try:
-            network_info = await network_service.get_network_info(port=port, ssl_enabled=ssl_enabled)
+            network_info = await network_service.get_network_info(
+                port=port, 
+                ssl_enabled=ssl_enabled,
+                use_letsencrypt=use_letsencrypt
+            )
         except Exception as e:
             logger.warning(f"Network detection failed for QR code: {e}")
             # Provide fallback values
             network_info = {
-                "lan": {"ip": "127.0.0.1"},
-                "wan": {"ip": None},
+                "lan": {"ip": "127.0.0.1", "protocol": "http"},
+                "wan": {"ip": None, "protocol": "https" if ssl_enabled else "http"},
                 "protocol": "https" if ssl_enabled else "http"
             }
         
@@ -2107,18 +2118,24 @@ async def get_qr_code(format: str = "png", size: int = 10):
         
         # Get domain if Let's Encrypt is enabled
         domain = None
-        if ssl_enabled and config.server.ssl.use_letsencrypt and config.server.ssl.domain:
+        if ssl_enabled and use_letsencrypt and config.server.ssl.domain:
             domain = config.server.ssl.domain
         
         # Build connection config for QR code
-        protocol = network_info.get("protocol", "https" if ssl_enabled else "http")
+        # LAN uses its own protocol (http for Let's Encrypt, since cert doesn't match IP)
+        # Domain/WAN uses https when SSL is enabled
+        lan_protocol = network_info.get("lan", {}).get("protocol", "http")
+        wan_protocol = network_info.get("wan", {}).get("protocol", "https" if ssl_enabled else "http")
+        
         qr_data = {
             "domain": domain,  # Domain name (for Let's Encrypt SSL)
             "lan": f"{network_info['lan']['ip']}:{port}",
-            "wan": f"{network_info['wan']['ip']}:{port}" if network_info['wan']['ip'] else None,
-            "protocol": protocol,
+            "lan_protocol": lan_protocol,  # Separate protocol for LAN (http for Let's Encrypt)
+            "wan": f"{network_info['wan']['ip']}:{port}" if network_info.get('wan', {}).get('ip') else None,
+            "wan_protocol": wan_protocol,  # Protocol for WAN/domain
+            "protocol": wan_protocol,  # Default/primary protocol (for backwards compatibility)
             "key": api_key,
-            "v": "2.0"
+            "v": "2.1"  # Bump version to indicate new protocol fields
         }
         
         # Encode as JSON

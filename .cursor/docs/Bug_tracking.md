@@ -46,27 +46,55 @@ How to prevent this bug in the future or what to watch out for.
 
 ## Bug Entries
 
-### Template Entry (Remove when first bug is logged)
-
-## [SEVERITY] Example Bug Title
-**Date:** 2025-11-07  
-**Stage:** Stage X - Component Name  
-**Component:** app/module_name.py  
+## [MEDIUM] Python 3.14 Not Supported - PyO3 Compatibility
+**Date:** 2025-12-14  
+**Stage:** Setup  
+**Component:** requirements.txt / pip install  
 **Status:** Resolved
 
 ### Description:
-Example of what the bug looked like and how it was discovered.
+When running `pip install -r requirements.txt` with Python 3.14, installation fails with error:
+`the configured Python interpreter version (3.14) is newer than PyO3's maximum supported version (3.13)`
 
 ### Root Cause:
-Technical explanation of what caused the issue.
+Python 3.14 is still in alpha/beta. Many packages with Rust components (pydantic, uvicorn) use PyO3 for Python bindings, which hasn't added 3.14 support yet.
 
 ### Resolution:
-1. Step one of the fix
-2. Step two of the fix
-3. Testing performed to verify fix
+Use Python 3.12 or 3.13 instead:
+```bash
+pyenv local 3.12.7
+rm -rf venv
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
 ### Prevention:
-Best practices or checks to prevent similar issues.
+README updated to specify Python 3.9-3.13 as supported versions.
+
+---
+
+## [MEDIUM] rumps Info.plist Missing in Virtual Environment (Mac)
+**Date:** 2025-12-14  
+**Stage:** Setup  
+**Component:** menubar_app.py  
+**Status:** Resolved
+
+### Description:
+When starting the menubar app, error appears:
+`Failed to start server: Failed to setup the notification center. This issue occurs when the "Info.plist" file cannot be found or is missing "CFBundleIdentifier".`
+
+### Root Cause:
+The `rumps` library requires an Info.plist file with a bundle identifier when running from a virtual environment on macOS.
+
+### Resolution:
+Run this command to create the required plist file:
+```bash
+/usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string "rumps"' venv/bin/Info.plist
+```
+
+### Prevention:
+Document this step in setup instructions for Mac users using the menubar app.
 
 ---
 
@@ -124,9 +152,9 @@ Best practices or checks to prevent similar issues.
 
 ## Statistics
 
-- **Total Bugs Logged:** 0
+- **Total Bugs Logged:** 2
 - **Critical Bugs:** 0
-- **Resolved Bugs:** 0
+- **Resolved Bugs:** 2
 - **Open Bugs:** 0
 
 ---

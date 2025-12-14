@@ -32,6 +32,11 @@ qrcode[pil]==7.4.2         # QR code generation
 Pillow==10.4.0             # Image library for QR codes
 
 # ============================================
+# macOS Menubar App (Mac only)
+# ============================================
+rumps==0.4.0               # macOS menubar app framework
+
+# ============================================
 # Testing
 # ============================================
 pytest==8.3.3              # Testing framework

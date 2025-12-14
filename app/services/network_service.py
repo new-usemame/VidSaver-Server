@@ -162,34 +162,52 @@ class NetworkService:
         except (ValueError, AttributeError):
             return False
     
-    async def get_network_info(self, port: int = 58443, ssl_enabled: bool = False) -> Dict[str, Any]:
+    async def get_network_info(self, port: int = 58443, ssl_enabled: bool = False, use_letsencrypt: bool = False) -> Dict[str, Any]:
         """Get complete network configuration information
         
         Args:
             port: Server port number
             ssl_enabled: Whether HTTPS is enabled
+            use_letsencrypt: Whether using Let's Encrypt (domain-based SSL)
             
         Returns:
             Dictionary with complete network information
         """
         lan_ip = await self.get_lan_ip()
         wan_ip = await self.get_wan_ip()
-        protocol = "https" if ssl_enabled else "http"
+        
+        # For Let's Encrypt SSL, LAN must use HTTP since the cert is for the domain, not the IP
+        # For self-signed SSL (installed on device), both can use HTTPS
+        if ssl_enabled and use_letsencrypt:
+            # Let's Encrypt: LAN uses HTTP, domain/WAN uses HTTPS
+            lan_protocol = "http"
+            wan_protocol = "https"
+        elif ssl_enabled:
+            # Self-signed: both use HTTPS (cert installed on device)
+            lan_protocol = "https"
+            wan_protocol = "https"
+        else:
+            # No SSL: both use HTTP
+            lan_protocol = "http"
+            wan_protocol = "http"
         
         info = {
             "lan": {
                 "ip": lan_ip,
-                "url": f"{protocol}://{lan_ip}:{port}",
+                "url": f"{lan_protocol}://{lan_ip}:{port}",
+                "protocol": lan_protocol,
                 "available": lan_ip != "127.0.0.1"
             },
             "wan": {
                 "ip": wan_ip,
-                "url": f"{protocol}://{wan_ip}:{port}" if wan_ip else None,
+                "url": f"{wan_protocol}://{wan_ip}:{port}" if wan_ip else None,
+                "protocol": wan_protocol,
                 "available": wan_ip is not None
             },
             "port": port,
-            "protocol": protocol,
+            "protocol": wan_protocol,  # Primary protocol (for domain/WAN)
             "ssl_enabled": ssl_enabled,
+            "use_letsencrypt": use_letsencrypt,
             "detected_at": datetime.now().isoformat()
         }
         
