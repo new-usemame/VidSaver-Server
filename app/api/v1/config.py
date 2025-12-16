@@ -1006,6 +1006,7 @@ async def get_config_editor():
             <button class="tab" onclick="showTab('downloads', event)">📥 Downloads</button>
             <button class="tab" onclick="showTab('downloader', event)">⬇️ Downloader</button>
             <button class="tab" onclick="showTab('security', event)">🔒 Security</button>
+            <button class="tab" onclick="showTab('sessions', event)">👥 Sessions</button>
             <button class="tab" onclick="showTab('logging', event)">📝 Logging</button>
         </div>
         
@@ -1296,50 +1297,60 @@ sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem</pre>
             
             <!-- Security Tab -->
             <div id="tab-security" class="tab-content">
-                <div class="section" style="border: 2px solid #667eea; border-radius: 12px;">
-                    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
-                        <span>🔐 Password Authentication</span>
-                        <label class="switch" style="margin: 0;">
+                <div class="section">
+                    <div class="section-header">Password Authentication</div>
+                    <div class="form-group">
+                        <div class="label-with-info">
+                            <label>Enable Authentication</label>
+                            <span class="info-icon">i
+                                <span class="tooltip">When enabled, users must login with the password to access protected API endpoints. Health and auth endpoints remain public.</span>
+                            </span>
+                        </div>
+                        <label class="switch">
                             <input type="checkbox" id="auth-enabled" onchange="updateAuthFieldStates()">
                             <span class="slider"></span>
                         </label>
                     </div>
                     
                     <div id="auth-config-panel">
-                        <!-- Password Card -->
-                        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; padding: 20px; margin-bottom: 20px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                                <div>
-                                    <div style="font-weight: 600; color: #2c3e50; margin-bottom: 5px;">Password</div>
-                                    <div id="auth-password-status" style="font-size: 14px; color: #6c757d;">Checking...</div>
-                                </div>
-                                <button id="auth-change-password-btn" class="btn btn-primary" onclick="showPasswordForm()">
-                                    🔑 Set Password
-                                </button>
+                        <div class="form-group">
+                            <div class="label-with-info">
+                                <label>Password</label>
+                                <span class="info-icon">i
+                                    <span class="tooltip">The universal password that all users must enter to access the server when authentication is enabled.</span>
+                                </span>
                             </div>
-                            
-                            <div id="auth-password-form" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6;">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                                    <div class="form-group" style="margin: 0;">
-                                        <label>New Password</label>
-                                        <input type="password" class="form-control" id="auth-new-password" placeholder="Min 4 characters">
-                                    </div>
-                                    <div class="form-group" style="margin: 0;">
-                                        <label>Confirm Password</label>
-                                        <input type="password" class="form-control" id="auth-confirm-password" placeholder="Confirm">
-                                    </div>
-                                </div>
-                                <div style="display: flex; gap: 10px;">
-                                    <button class="btn btn-primary" onclick="setAuthPassword()">Save Password</button>
-                                    <button class="btn btn-secondary" onclick="cancelPasswordChange()">Cancel</button>
-                                </div>
+                            <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                                <span id="auth-password-status" style="font-size: 14px; color: #6c757d;">Checking...</span>
+                                <button id="auth-change-password-btn" class="btn btn-primary" onclick="showPasswordForm()">🔑 Set Password</button>
                             </div>
                         </div>
                         
-                        <!-- Session Duration -->
-                        <div style="margin-bottom: 20px;">
-                            <div style="font-weight: 600; color: #2c3e50; margin-bottom: 12px;">Session Duration</div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 10px;" id="session-duration-options">
+                        <div id="auth-password-form" style="display: none; background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                            <div class="two-columns">
+                                <div class="form-group" style="margin-bottom: 15px;">
+                                    <label>New Password</label>
+                                    <input type="password" class="form-control" id="auth-new-password" placeholder="Min 4 characters">
+                                </div>
+                                <div class="form-group" style="margin-bottom: 15px;">
+                                    <label>Confirm Password</label>
+                                    <input type="password" class="form-control" id="auth-confirm-password" placeholder="Confirm">
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="setAuthPassword()">Save Password</button>
+                                <button class="btn btn-secondary" onclick="cancelPasswordChange()">Cancel</button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <div class="label-with-info">
+                                <label>Session Duration</label>
+                                <span class="info-icon">i
+                                    <span class="tooltip">How long a login session remains valid before users must re-authenticate.</span>
+                                </span>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;" id="session-duration-options">
                                 <label class="duration-option">
                                     <input type="radio" name="session-duration" value="1" onchange="updateSessionTimeout()">
                                     <span>1 hour</span>
@@ -1358,16 +1369,21 @@ sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem</pre>
                                 </label>
                                 <label class="duration-option">
                                     <input type="radio" name="session-duration" value="0" onchange="updateSessionTimeout()">
-                                    <span>Never expires</span>
+                                    <span>Never</span>
                                 </label>
+                                <label class="duration-option">
+                                    <input type="radio" name="session-duration" value="custom" onchange="updateSessionTimeout()">
+                                    <span>Custom</span>
+                                </label>
+                            </div>
+                            <div id="custom-duration-input" style="display: none; margin-top: 10px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <input type="number" class="form-control" id="auth-custom-hours" min="1" max="8760" placeholder="Hours" style="width: 120px;" onchange="updateCustomTimeout()">
+                                    <span class="help-text">hours (1-8760, max 1 year)</span>
+                                </div>
                             </div>
                             <input type="hidden" id="auth-session-timeout" value="24">
                         </div>
-                        
-                        <!-- Sessions & Activity Link -->
-                        <a href="/api/v1/auth/sessions" target="_blank" class="btn btn-info" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
-                            📊 View Sessions & Activity Log
-                        </a>
                     </div>
                 </div>
                 
@@ -1375,7 +1391,7 @@ sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem</pre>
                     .duration-option {
                         display: inline-flex;
                         align-items: center;
-                        padding: 10px 18px;
+                        padding: 8px 16px;
                         background: white;
                         border: 2px solid #dee2e6;
                         border-radius: 8px;
@@ -1443,6 +1459,35 @@ sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem</pre>
                         </div>
                         <textarea class="form-control" id="security-domains" rows="4" placeholder="tiktok.com&#10;instagram.com"></textarea>
                         <span class="help-text">Only URLs from these domains will be accepted</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Sessions Tab -->
+            <div id="tab-sessions" class="tab-content">
+                <div class="section">
+                    <div class="section-header">Sessions & Activity</div>
+                    <div class="alert alert-info">
+                        Track active sessions and view the activity log for your server. This works independently of authentication - all API activity is logged.
+                    </div>
+                    
+                    <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-top: 20px;">
+                        <a href="/api/v1/auth/sessions" target="_blank" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; padding: 15px 25px; font-size: 16px;">
+                            👥 View Active Sessions
+                        </a>
+                        <a href="/api/v1/auth/sessions" target="_blank" class="btn btn-info" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; padding: 15px 25px; font-size: 16px;">
+                            📊 Activity Log
+                        </a>
+                    </div>
+                    
+                    <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                        <h4 style="margin: 0 0 15px 0; color: #2c3e50;">What's tracked:</h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #495057; line-height: 1.8;">
+                            <li><strong>Sessions</strong> - Active login sessions with device info, IP address, and last activity</li>
+                            <li><strong>Logins</strong> - Successful and failed login attempts</li>
+                            <li><strong>Logouts</strong> - When users log out</li>
+                            <li><strong>API Requests</strong> - POST/PUT/DELETE requests to protected endpoints</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -1787,18 +1832,27 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
             document.getElementById('auth-session-timeout').value = sessionTimeout;
             
             // Set the correct radio button for session duration
+            const presetValues = ['0', '1', '24', '168', '720'];
             const durationOptions = document.querySelectorAll('input[name="session-duration"]');
             let matched = false;
+            
             durationOptions.forEach(opt => {
-                if (parseInt(opt.value) === sessionTimeout) {
+                if (opt.value !== 'custom' && parseInt(opt.value) === sessionTimeout) {
                     opt.checked = true;
                     matched = true;
                 }
             });
-            // If no match, default to 24 hours
+            
+            // If no preset match, select "Custom" and show custom input
             if (!matched) {
-                const default24 = document.querySelector('input[name="session-duration"][value="24"]');
-                if (default24) default24.checked = true;
+                const customRadio = document.querySelector('input[name="session-duration"][value="custom"]');
+                if (customRadio) {
+                    customRadio.checked = true;
+                    document.getElementById('custom-duration-input').style.display = 'block';
+                    document.getElementById('auth-custom-hours').value = sessionTimeout;
+                }
+            } else {
+                document.getElementById('custom-duration-input').style.display = 'none';
             }
             
             // Update password status display
@@ -2068,8 +2122,28 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
         
         function updateSessionTimeout() {
             const selected = document.querySelector('input[name="session-duration"]:checked');
+            const customInput = document.getElementById('custom-duration-input');
+            
             if (selected) {
-                document.getElementById('auth-session-timeout').value = selected.value;
+                if (selected.value === 'custom') {
+                    customInput.style.display = 'block';
+                    // Use custom value if already set, otherwise default to current timeout
+                    const customHours = document.getElementById('auth-custom-hours');
+                    if (!customHours.value) {
+                        customHours.value = document.getElementById('auth-session-timeout').value || 24;
+                    }
+                    document.getElementById('auth-session-timeout').value = customHours.value;
+                } else {
+                    customInput.style.display = 'none';
+                    document.getElementById('auth-session-timeout').value = selected.value;
+                }
+            }
+        }
+        
+        function updateCustomTimeout() {
+            const customHours = document.getElementById('auth-custom-hours').value;
+            if (customHours && parseInt(customHours) > 0) {
+                document.getElementById('auth-session-timeout').value = customHours;
             }
         }
         
