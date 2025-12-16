@@ -1296,63 +1296,109 @@ sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem</pre>
             
             <!-- Security Tab -->
             <div id="tab-security" class="tab-content">
-                <div class="section">
-                    <div class="section-header">🔐 Password Authentication</div>
-                    <div class="alert alert-info">
-                        <strong>Universal Password Protection</strong><br>
-                        When enabled, all API endpoints require authentication. Users must login with the password to access the server.
-                    </div>
-                    <div class="two-columns">
-                        <div class="form-group">
-                            <div class="label-with-info">
-                                <label>Enable Authentication</label>
-                                <span class="info-icon">i
-                                    <span class="tooltip">When enabled, users must login at /api/v1/auth/login with the password to access protected endpoints. Health and auth endpoints remain public.</span>
-                                </span>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="auth-enabled" onchange="updateAuthFieldStates()">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                        <div class="form-group">
-                            <div class="label-with-info">
-                                <label>Session Timeout (hours)</label>
-                                <span class="info-icon">i
-                                    <span class="tooltip">How long a login session remains valid before users must re-authenticate. Default is 24 hours.</span>
-                                </span>
-                            </div>
-                            <input type="number" class="form-control" id="auth-session-timeout" min="1" max="720" placeholder="24">
-                            <span class="help-text">1-720 hours (max 30 days)</span>
-                        </div>
+                <div class="section" style="border: 2px solid #667eea; border-radius: 12px;">
+                    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>🔐 Password Authentication</span>
+                        <label class="switch" style="margin: 0;">
+                            <input type="checkbox" id="auth-enabled" onchange="updateAuthFieldStates()">
+                            <span class="slider"></span>
+                        </label>
                     </div>
                     
-                    <div id="auth-password-section" style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
-                            <div>
-                                <strong>Password Status:</strong>
-                                <span id="auth-password-status" style="margin-left: 10px;">Checking...</span>
+                    <div id="auth-config-panel">
+                        <!-- Password Card -->
+                        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 10px; padding: 20px; margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                                <div>
+                                    <div style="font-weight: 600; color: #2c3e50; margin-bottom: 5px;">Password</div>
+                                    <div id="auth-password-status" style="font-size: 14px; color: #6c757d;">Checking...</div>
+                                </div>
+                                <button id="auth-change-password-btn" class="btn btn-primary" onclick="showPasswordForm()">
+                                    🔑 Set Password
+                                </button>
+                            </div>
+                            
+                            <div id="auth-password-form" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                    <div class="form-group" style="margin: 0;">
+                                        <label>New Password</label>
+                                        <input type="password" class="form-control" id="auth-new-password" placeholder="Min 4 characters">
+                                    </div>
+                                    <div class="form-group" style="margin: 0;">
+                                        <label>Confirm Password</label>
+                                        <input type="password" class="form-control" id="auth-confirm-password" placeholder="Confirm">
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 10px;">
+                                    <button class="btn btn-primary" onclick="setAuthPassword()">Save Password</button>
+                                    <button class="btn btn-secondary" onclick="cancelPasswordChange()">Cancel</button>
+                                </div>
                             </div>
                         </div>
                         
-                        <div id="auth-password-form" style="display: none;">
-                            <div class="form-group" style="margin-bottom: 10px;">
-                                <label>New Password</label>
-                                <input type="password" class="form-control" id="auth-new-password" placeholder="Enter new password (min 4 characters)">
+                        <!-- Session Duration -->
+                        <div style="margin-bottom: 20px;">
+                            <div style="font-weight: 600; color: #2c3e50; margin-bottom: 12px;">Session Duration</div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 10px;" id="session-duration-options">
+                                <label class="duration-option">
+                                    <input type="radio" name="session-duration" value="1" onchange="updateSessionTimeout()">
+                                    <span>1 hour</span>
+                                </label>
+                                <label class="duration-option">
+                                    <input type="radio" name="session-duration" value="24" onchange="updateSessionTimeout()">
+                                    <span>24 hours</span>
+                                </label>
+                                <label class="duration-option">
+                                    <input type="radio" name="session-duration" value="168" onchange="updateSessionTimeout()">
+                                    <span>7 days</span>
+                                </label>
+                                <label class="duration-option">
+                                    <input type="radio" name="session-duration" value="720" onchange="updateSessionTimeout()">
+                                    <span>30 days</span>
+                                </label>
+                                <label class="duration-option">
+                                    <input type="radio" name="session-duration" value="0" onchange="updateSessionTimeout()">
+                                    <span>Never expires</span>
+                                </label>
                             </div>
-                            <div class="form-group" style="margin-bottom: 15px;">
-                                <label>Confirm Password</label>
-                                <input type="password" class="form-control" id="auth-confirm-password" placeholder="Confirm password">
-                            </div>
-                            <div style="display: flex; gap: 10px;">
-                                <button class="btn btn-primary" onclick="setAuthPassword()">💾 Set Password</button>
-                                <button class="btn btn-secondary" onclick="cancelPasswordChange()">Cancel</button>
-                            </div>
+                            <input type="hidden" id="auth-session-timeout" value="24">
                         </div>
                         
-                        <button id="auth-change-password-btn" class="btn btn-info" onclick="showPasswordForm()">🔑 Set/Change Password</button>
+                        <!-- Sessions & Activity Link -->
+                        <a href="/api/v1/auth/sessions" target="_blank" class="btn btn-info" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
+                            📊 View Sessions & Activity Log
+                        </a>
                     </div>
                 </div>
+                
+                <style>
+                    .duration-option {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 10px 18px;
+                        background: white;
+                        border: 2px solid #dee2e6;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                        font-size: 14px;
+                    }
+                    .duration-option:hover {
+                        border-color: #667eea;
+                        background: #f8f9ff;
+                    }
+                    .duration-option input {
+                        display: none;
+                    }
+                    .duration-option input:checked + span {
+                        color: #667eea;
+                        font-weight: 600;
+                    }
+                    .duration-option:has(input:checked) {
+                        border-color: #667eea;
+                        background: #f0f3ff;
+                    }
+                </style>
                 
                 <div class="section">
                     <div class="section-header">API Keys</div>
@@ -1734,15 +1780,37 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
             
             // Authentication
             document.getElementById('auth-enabled').checked = data.auth?.enabled || false;
-            document.getElementById('auth-session-timeout').value = data.auth?.session_timeout_hours || 24;
+            // Handle session timeout - 0 means never expires, default to 24 if undefined
+            const sessionTimeout = (data.auth?.session_timeout_hours !== undefined && data.auth?.session_timeout_hours !== null) 
+                ? data.auth.session_timeout_hours 
+                : 24;
+            document.getElementById('auth-session-timeout').value = sessionTimeout;
+            
+            // Set the correct radio button for session duration
+            const durationOptions = document.querySelectorAll('input[name="session-duration"]');
+            let matched = false;
+            durationOptions.forEach(opt => {
+                if (parseInt(opt.value) === sessionTimeout) {
+                    opt.checked = true;
+                    matched = true;
+                }
+            });
+            // If no match, default to 24 hours
+            if (!matched) {
+                const default24 = document.querySelector('input[name="session-duration"][value="24"]');
+                if (default24) default24.checked = true;
+            }
             
             // Update password status display
             const hasPassword = data.auth?.password_hash ? true : false;
             const statusEl = document.getElementById('auth-password-status');
+            const changeBtn = document.getElementById('auth-change-password-btn');
             if (hasPassword) {
-                statusEl.innerHTML = '<span style="color: #28a745;">✓ Password is set</span>';
+                statusEl.innerHTML = '<span style="color: #28a745;">✓ Password is configured</span>';
+                if (changeBtn) changeBtn.textContent = '🔑 Change Password';
             } else {
-                statusEl.innerHTML = '<span style="color: #dc3545;">✗ No password set</span>';
+                statusEl.innerHTML = '<span style="color: #dc3545;">✗ No password set - authentication will not work</span>';
+                if (changeBtn) changeBtn.textContent = '🔑 Set Password';
             }
             updateAuthFieldStates();
             
@@ -1829,7 +1897,7 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
                 },
                 auth: {
                     enabled: document.getElementById('auth-enabled').checked,
-                    session_timeout_hours: parseInt(document.getElementById('auth-session-timeout').value) || 24
+                    session_timeout_hours: parseInt(document.getElementById('auth-session-timeout').value)
                 },
                 security: {
                     api_keys: apiKeys,
@@ -1982,15 +2050,26 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
         // Authentication functions
         function updateAuthFieldStates() {
             const authEnabled = document.getElementById('auth-enabled').checked;
-            const sessionTimeoutField = document.getElementById('auth-session-timeout');
-            const passwordSection = document.getElementById('auth-password-section');
+            const configPanel = document.getElementById('auth-config-panel');
             
-            // Always allow setting password, but show warning if enabling without password
+            // Show/hide the config panel based on auth enabled state
+            if (configPanel) {
+                configPanel.style.opacity = authEnabled ? '1' : '0.6';
+            }
+            
+            // Show warning if enabling without password
             if (authEnabled) {
                 const statusEl = document.getElementById('auth-password-status');
                 if (statusEl && statusEl.textContent.includes('No password')) {
-                    showAlert('Warning: Authentication is enabled but no password is set. Set a password below.', 'warning');
+                    showAlert('Warning: Authentication is enabled but no password is set. Set a password first!', 'warning');
                 }
+            }
+        }
+        
+        function updateSessionTimeout() {
+            const selected = document.querySelector('input[name="session-duration"]:checked');
+            if (selected) {
+                document.getElementById('auth-session-timeout').value = selected.value;
             }
         }
         

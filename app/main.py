@@ -158,6 +158,24 @@ async def logging_middleware(request: Request, call_next):
         raise
 
 
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from request, handling proxies"""
+    # Check for forwarded headers (when behind proxy)
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip
+    
+    # Fall back to direct connection
+    if request.client:
+        return request.client.host
+    
+    return "unknown"
+
+
 @app.middleware("http")
 async def authentication_middleware(request: Request, call_next):
     """Enforce authentication on protected endpoints
@@ -165,6 +183,7 @@ async def authentication_middleware(request: Request, call_next):
     - Checks if auth is enabled in config
     - Allows unauthenticated access to public paths
     - Requires valid session token for all other endpoints
+    - Logs API requests to activity log
     """
     config = get_config()
     
@@ -216,7 +235,8 @@ async def authentication_middleware(request: Request, call_next):
     from app.services.auth_service import get_auth_service
     auth_service = get_auth_service(config.auth.session_timeout_hours)
     
-    if not auth_service.validate_session(token):
+    is_valid, session_id = auth_service.validate_session(token)
+    if not is_valid:
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={
@@ -224,6 +244,21 @@ async def authentication_middleware(request: Request, call_next):
                 "message": "Session expired or invalid. Please login again at /api/v1/auth/login"
             },
             headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    # Store session_id in request state for later use
+    request.state.session_id = session_id
+    
+    # Log API request (only for significant endpoints, not static files)
+    if path.startswith("/api/v1/") and request.method in ["POST", "PUT", "DELETE"]:
+        ip_address = get_client_ip(request)
+        user_agent = request.headers.get("User-Agent")
+        auth_service.log_event(
+            event_type="api_request",
+            ip_address=ip_address,
+            user_agent=user_agent,
+            endpoint=f"{request.method} {path}",
+            session_id=session_id
         )
     
     # Token is valid, proceed with request

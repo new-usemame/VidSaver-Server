@@ -122,8 +122,91 @@ class Download:
         )
 
 
+@dataclass
+class Session:
+    """Session record model for persistent auth sessions"""
+    id: int                              # Auto-increment PRIMARY KEY
+    token_hash: str                      # SHA256 hash of the session token
+    ip_address: Optional[str]            # Client IP address
+    user_agent: Optional[str]            # Browser user agent string
+    device_info: Optional[str]           # Parsed device info (browser/OS)
+    created_at: int                      # Unix timestamp of creation
+    last_used_at: Optional[int]          # Unix timestamp of last activity
+    expires_at: Optional[int]            # Unix timestamp of expiry (null = never)
+    is_active: bool = True               # Whether session is active
+    
+    def to_dict(self) -> dict:
+        """Convert Session to dictionary for JSON serialization"""
+        return {
+            "id": self.id,
+            "token_hash": self.token_hash,
+            "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
+            "device_info": self.device_info,
+            "created_at": self.created_at,
+            "last_used_at": self.last_used_at,
+            "expires_at": self.expires_at,
+            "is_active": self.is_active,
+        }
+    
+    @classmethod
+    def from_row(cls, row: tuple) -> "Session":
+        """Create Session from database row"""
+        return cls(
+            id=row[0],
+            token_hash=row[1],
+            ip_address=row[2],
+            user_agent=row[3],
+            device_info=row[4],
+            created_at=row[5],
+            last_used_at=row[6],
+            expires_at=row[7],
+            is_active=bool(row[8]) if row[8] is not None else True,
+        )
+
+
+@dataclass
+class AuthLogEntry:
+    """Auth activity log entry"""
+    id: int                              # Auto-increment PRIMARY KEY
+    timestamp: int                       # Unix timestamp
+    event_type: str                      # login, logout, login_failed, api_request
+    ip_address: Optional[str]            # Client IP address
+    user_agent: Optional[str]            # Browser user agent
+    endpoint: Optional[str]              # API endpoint (for api_request events)
+    details: Optional[str]               # JSON string with extra details
+    session_id: Optional[int]            # Reference to session (if applicable)
+    
+    def to_dict(self) -> dict:
+        """Convert AuthLogEntry to dictionary for JSON serialization"""
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "event_type": self.event_type,
+            "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
+            "endpoint": self.endpoint,
+            "details": self.details,
+            "session_id": self.session_id,
+        }
+    
+    @classmethod
+    def from_row(cls, row: tuple) -> "AuthLogEntry":
+        """Create AuthLogEntry from database row"""
+        return cls(
+            id=row[0],
+            timestamp=row[1],
+            event_type=row[2],
+            ip_address=row[3],
+            user_agent=row[4],
+            endpoint=row[5],
+            details=row[6],
+            session_id=row[7],
+        )
+
+
 # Database Schema SQL
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Users table
 CREATE_USERS_TABLE = """
@@ -190,6 +273,52 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 """
 
+# Sessions table for persistent auth sessions
+CREATE_SESSIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT UNIQUE NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    device_info TEXT,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER,
+    expires_at INTEGER,
+    is_active INTEGER DEFAULT 1
+);
+"""
+
+CREATE_SESSIONS_TOKEN_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+"""
+
+CREATE_SESSIONS_ACTIVE_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active);
+"""
+
+# Auth activity log table
+CREATE_AUTH_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS auth_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    endpoint TEXT,
+    details TEXT,
+    session_id INTEGER,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+"""
+
+CREATE_AUTH_LOG_TIMESTAMP_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_auth_log_timestamp ON auth_log(timestamp DESC);
+"""
+
+CREATE_AUTH_LOG_EVENT_TYPE_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_auth_log_event_type ON auth_log(event_type);
+"""
+
 # All initialization statements in order (for new databases)
 INIT_STATEMENTS = [
     CREATE_USERS_TABLE,
@@ -201,6 +330,12 @@ INIT_STATEMENTS = [
     CREATE_USER_ID_INDEX,
     CREATE_GENRE_INDEX,
     CREATE_MIGRATIONS_TABLE,
+    CREATE_SESSIONS_TABLE,
+    CREATE_SESSIONS_TOKEN_INDEX,
+    CREATE_SESSIONS_ACTIVE_INDEX,
+    CREATE_AUTH_LOG_TABLE,
+    CREATE_AUTH_LOG_TIMESTAMP_INDEX,
+    CREATE_AUTH_LOG_EVENT_TYPE_INDEX,
 ]
 
 

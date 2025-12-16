@@ -234,11 +234,11 @@ class AuthConfig(BaseSettings):
         default=None,
         description="Bcrypt hash of the universal access password (set via CLI: python manage.py auth set-password)"
     )
-    session_timeout_hours: int = Field(
+    session_timeout_hours: Optional[int] = Field(
         default=24,
-        ge=1,
-        le=720,  # Max 30 days
-        description="Session timeout in hours (how long before re-authentication is required)"
+        ge=0,
+        le=720,  # Max 30 days, 0 = never expires
+        description="Session timeout in hours (0 or null = never expires)"
     )
     
     model_config = SettingsConfigDict(
