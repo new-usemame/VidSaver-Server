@@ -40,7 +40,7 @@ from app.utils.platform_utils import (
     get_server_info, get_server_urls, get_lan_ip,
     tail_log, open_in_browser, open_log_viewer,
     get_platform, PROJECT_DIR, NOHUP_LOG, CONFIG_FILE,
-    get_server_config,
+    get_server_config, is_port_in_use, get_port_process,
 )
 
 # Rich console for pretty output
@@ -176,8 +176,8 @@ def show_dashboard():
             cmd_table.add_row("python manage.py logs -f", "Follow server logs")
             cmd_table.add_row("python manage.py console", "Interactive console mode")
         else:
-            cmd_table.add_row("python manage.py start", "Start the server")
-            cmd_table.add_row("python manage.py start --tray", "Start server + system tray")
+            cmd_table.add_row("python manage.py start", "Start server + system tray")
+            cmd_table.add_row("python manage.py start --no-tray", "Start server only (headless)")
         
         cmd_table.add_row("python manage.py --help", "Show all commands")
         
@@ -185,14 +185,15 @@ def show_dashboard():
     else:
         print("Quick Commands:")
         if running:
-            print("  python manage.py stop      - Stop the server")
-            print("  python manage.py restart   - Restart the server")
-            print("  python manage.py docs      - Open API docs in browser")
-            print("  python manage.py editor    - Open config editor in browser")
-            print("  python manage.py logs -f   - Follow server logs")
+            print("  python manage.py stop         - Stop the server")
+            print("  python manage.py restart      - Restart the server")
+            print("  python manage.py docs         - Open API docs in browser")
+            print("  python manage.py editor       - Open config editor in browser")
+            print("  python manage.py logs -f      - Follow server logs")
         else:
-            print("  python manage.py start     - Start the server")
-        print("  python manage.py --help    - Show all commands")
+            print("  python manage.py start        - Start server + system tray")
+            print("  python manage.py start --no-tray - Start server only (headless)")
+        print("  python manage.py --help       - Show all commands")
     
     print()
 
@@ -212,10 +213,40 @@ def cli(ctx):
 
 
 @cli.command()
-@click.option('--tray/--no-tray', default=False, help='Also start the system tray app')
+@click.option('--tray/--no-tray', default=True, help='Start with system tray app (default: yes)')
 @click.option('--wait', default=2, help='Seconds to wait for startup verification')
 def start(tray: bool, wait: int):
-    """Start the video download server."""
+    """Start the video download server.
+    
+    By default, also starts the system tray app for easy GUI access.
+    Use --no-tray for headless servers or if you prefer terminal-only control.
+    """
+    # Get configured port
+    config = get_server_config()
+    port = config.get('server', {}).get('port', 58443)
+    
+    # Check if port is already in use
+    if is_port_in_use(port):
+        print_error(f"Port {port} is already in use!")
+        print()
+        
+        # Try to get info about what's using the port
+        proc_info = get_port_process(port)
+        if proc_info:
+            print_status(f"  [dim]Process:[/dim] {proc_info.get('name', 'unknown')} (PID: {proc_info.get('pid', '?')})")
+            if proc_info.get('cwd'):
+                print_status(f"  [dim]Started from:[/dim] {proc_info['cwd']}")
+            print()
+            print_info("To stop it, either:")
+            print_status("  1. Go to the folder where it was started and run: [cyan]python manage.py stop[/cyan]")
+            print_status(f"  2. Kill it directly: [cyan]kill {proc_info.get('pid', '<PID>')}[/cyan]")
+        else:
+            print()
+            print_info("Another process is using this port.")
+            print_status(f"  Find it with: [cyan]lsof -i :{port}[/cyan]")
+        
+        sys.exit(1)
+    
     running, pid = is_server_running()
     
     if running:
@@ -237,20 +268,13 @@ def start(tray: bool, wait: int):
         if running:
             print_success(f"Server started successfully (PID: {pid})")
             
-            # Show access URLs
-            info = get_server_info()
-            urls = info.get('urls', {})
-            
-            print()
-            print_status("[bold]Access URLs:[/bold]")
-            print_status(f"  Local:  {urls.get('local', 'N/A')}")
-            print_status(f"  LAN:    {urls.get('lan', 'N/A')}")
-            print_status(f"  Docs:   {urls.get('docs', 'N/A')}")
-            
             if tray:
                 tray_running, tray_pid = is_tray_app_running()
                 if tray_running:
                     print_success(f"Tray app started (PID: {tray_pid})")
+            
+            # Show full dashboard with URLs and commands
+            show_dashboard()
         else:
             print_error("Server failed to start. Check logs with: python manage.py logs")
             sys.exit(1)

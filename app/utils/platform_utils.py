@@ -462,6 +462,88 @@ def stop_tray_app() -> bool:
     return True
 
 
+def is_port_in_use(port: int, host: str = '0.0.0.0') -> bool:
+    """Check if a port is already in use.
+    
+    Args:
+        port: Port number to check
+        host: Host to bind to (default 0.0.0.0)
+        
+    Returns:
+        True if port is in use, False if available
+    """
+    import socket
+    
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return False  # Port is available
+        except OSError:
+            return True  # Port is in use
+
+
+def get_port_process(port: int) -> Optional[Dict[str, Any]]:
+    """Get information about the process using a port.
+    
+    Args:
+        port: Port number to check
+        
+    Returns:
+        Dict with process info (pid, name, cmdline, cwd) or None
+    """
+    # Try psutil first (cross-platform)
+    if HAS_PSUTIL:
+        try:
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.laddr.port == port and conn.status == 'LISTEN':
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        return {
+                            'pid': conn.pid,
+                            'name': proc.name(),
+                            'cmdline': ' '.join(proc.cmdline()),
+                            'cwd': proc.cwd() if hasattr(proc, 'cwd') else None,
+                        }
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        return {'pid': conn.pid, 'name': 'unknown', 'cmdline': '', 'cwd': None}
+        except (psutil.AccessDenied, OSError):
+            pass
+    
+    # Fallback: use lsof on Unix systems
+    platform = get_platform()
+    if platform in ('darwin', 'linux'):
+        try:
+            result = subprocess.run(
+                ['lsof', '-i', f':{port}', '-t'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pid = int(result.stdout.strip().split('\n')[0])
+                
+                # Get more info about the process
+                info = {'pid': pid, 'name': 'unknown', 'cmdline': '', 'cwd': None}
+                
+                if HAS_PSUTIL:
+                    try:
+                        proc = psutil.Process(pid)
+                        info['name'] = proc.name()
+                        info['cmdline'] = ' '.join(proc.cmdline())
+                        try:
+                            info['cwd'] = proc.cwd()
+                        except (psutil.AccessDenied, OSError):
+                            pass
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                
+                return info
+        except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+            pass
+    
+    return None
+
+
 def get_lan_ip() -> str:
     """Get LAN IP address (cross-platform).
     
