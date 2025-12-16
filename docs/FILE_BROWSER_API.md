@@ -1,29 +1,29 @@
 # File Browser API - Client Integration Guide
 
-Server-side documentation for iOS/client integration with the Downloads File Browser API.
+Server documentation for iOS/client integration with the Downloads & Queue API.
 
 ## Overview
 
-The File Browser API provides access to downloaded files organized by `username/genre/` structure. Unlike the deprecated history endpoint, this reads directly from the file system—if a file exists on disk, it appears here.
+The File Browser API provides two main capabilities:
+
+1. **Download Queue** - Track pending, in-progress, and failed downloads (database-backed)
+2. **File Browser** - Browse and stream completed downloads (file system-backed)
 
 **Base URL:** `/api/v1/downloads`
 
+---
+
 ## Authentication
 
-**All File Browser endpoints require authentication**, even if global auth is disabled.
+**All endpoints require authentication**, even if global auth is disabled.
 
 ### Headers
 ```
 Authorization: Bearer <session_token>
 ```
 
-Or use cookie-based auth (for web browsers):
-```
-Cookie: session_token=<token>
-```
-
 ### Getting a Token
-```
+```http
 POST /api/v1/auth/login
 Content-Type: application/json
 
@@ -41,13 +41,15 @@ Response:
 
 ---
 
-## Endpoints
+## Download Queue Endpoints
 
-### 1. Get Download Queue
+These endpoints read from the database to show download status.
 
-Returns pending, in-progress, and failed downloads from the database.
+### GET /queue - Get Download Queue
 
-```
+Returns all non-completed downloads organized by status.
+
+```http
 GET /api/v1/downloads/queue
 ```
 
@@ -56,78 +58,107 @@ GET /api/v1/downloads/queue
 {
   "downloading": [
     {
-      "id": "uuid-string",
-      "url": "https://tiktok.com/...",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "url": "https://tiktok.com/@user/video/123",
       "status": "downloading",
       "username": "defaultuser",
       "genre": "tiktok",
       "error_message": null,
       "retry_count": 0,
       "created_at": 1702742400,
-      "created_formatted": "2 hours ago",
+      "created_formatted": "2 min ago",
       "started_at": 1702742410,
-      "started_formatted": "2 hours ago"
+      "started_formatted": "1 min ago"
     }
   ],
-  "pending": [...],
-  "failed": [
+  "pending": [
     {
-      "id": "uuid-string",
-      "url": "https://instagram.com/...",
-      "status": "failed",
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "url": "https://instagram.com/p/ABC123",
+      "status": "pending",
       "username": "defaultuser",
       "genre": "instagram",
-      "error_message": "HTTP Error 404: Not Found",
-      "retry_count": 3,
-      "created_at": 1702742000,
-      "created_formatted": "3 hours ago",
+      "error_message": null,
+      "retry_count": 0,
+      "created_at": 1702742500,
+      "created_formatted": "Just now",
       "started_at": null,
       "started_formatted": null
     }
   ],
+  "failed": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "url": "https://tiktok.com/@user/video/456",
+      "status": "failed",
+      "username": "defaultuser",
+      "genre": "tiktok",
+      "error_message": "HTTP Error 404: Video not found",
+      "retry_count": 3,
+      "created_at": 1702740000,
+      "created_formatted": "1 hour ago",
+      "started_at": 1702740010,
+      "started_formatted": "1 hour ago"
+    }
+  ],
   "counts": {
     "downloading": 1,
-    "pending": 2,
+    "pending": 1,
     "failed": 1,
-    "total": 4
+    "total": 3
   }
 }
 ```
 
-**Use Case:** Show download progress, pending queue, and failed downloads with errors.
+**Use Cases:**
+- Show active download progress with spinner/animation
+- Display pending queue with position
+- Show failed downloads with error messages and retry option
+- Badge counter for total queue items
 
 ---
 
-### 1b. Retry Failed Download
+### POST /retry/{download_id} - Retry Failed Download
 
-Reset a failed download back to pending so it will be retried.
+Reset a failed download back to pending so it will be retried by the worker.
 
+```http
+POST /api/v1/downloads/retry/550e8400-e29b-41d4-a716-446655440002
 ```
-POST /api/v1/downloads/retry/{download_id}
-```
 
-**Response:**
+**Response (200):**
 ```json
 {
   "success": true,
   "message": "Download queued for retry",
-  "download_id": "uuid-string"
+  "download_id": "550e8400-e29b-41d4-a716-446655440002"
 }
 ```
 
 **Error Responses:**
 - `404` - Download not found
-- `400` - Download is not in failed status (can only retry failed downloads)
+- `400` - Download is not in failed status
 
-**Use Case:** Retry button for failed downloads.
+```json
+{
+  "error": "invalid_status",
+  "message": "Cannot retry download with status 'completed'. Only failed downloads can be retried."
+}
+```
+
+**Use Case:** Retry button on failed downloads.
 
 ---
 
-### 2. Get Folder Structure
+## File Browser Endpoints
 
-Returns the complete folder hierarchy with file counts and sizes (from file system).
+These endpoints read from the file system to show completed downloads.
 
-```
+### GET /structure - Get Folder Structure
+
+Returns folder hierarchy with file counts and storage usage.
+
+```http
 GET /api/v1/downloads/structure
 ```
 
@@ -161,16 +192,19 @@ GET /api/v1/downloads/structure
 }
 ```
 
-**Use Case:** Build a folder tree UI, show storage usage per user/genre.
+**Use Cases:**
+- Folder tree navigation UI
+- Storage usage per user/genre
+- Quick stats display
 
 ---
 
-### 3. Get Videos List
+### GET /videos - Get Videos List
 
 Returns a flat list of videos with filtering, sorting, and pagination.
 
-```
-GET /api/v1/downloads/videos
+```http
+GET /api/v1/downloads/videos?username=defaultuser&genre=tiktok&sort=newest&limit=20
 ```
 
 **Query Parameters:**
@@ -178,26 +212,21 @@ GET /api/v1/downloads/videos
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `username` | string | null | Filter by username |
-| `genre` | string | null | Filter by genre (tiktok, instagram, youtube, etc.) |
+| `genre` | string | null | Filter by genre |
 | `search` | string | null | Search in filename |
-| `sort` | string | "newest" | Sort order: `newest`, `oldest`, `largest`, `smallest`, `name` |
+| `sort` | string | "newest" | `newest`, `oldest`, `largest`, `smallest`, `name` |
 | `limit` | int | 50 | Results per page (1-200) |
 | `offset` | int | 0 | Pagination offset |
-
-**Example Request:**
-```
-GET /api/v1/downloads/videos?username=defaultuser&genre=tiktok&sort=newest&limit=20
-```
 
 **Response:**
 ```json
 {
   "videos": [
     {
-      "filename": "video_123456.mp4",
+      "filename": "video_7301234567890.mp4",
       "username": "defaultuser",
       "genre": "tiktok",
-      "path": "defaultuser/tiktok/video_123456.mp4",
+      "path": "defaultuser/tiktok/video_7301234567890.mp4",
       "size_bytes": 10485760,
       "size_formatted": "10.0 MB",
       "modified_at": 1702742400,
@@ -212,44 +241,151 @@ GET /api/v1/downloads/videos?username=defaultuser&genre=tiktok&sort=newest&limit
 }
 ```
 
-**Use Case:** Display video grid/list, implement search, paginated browsing.
+**Use Cases:**
+- Video grid/list view
+- Search functionality
+- Paginated browsing
 
 ---
 
-### 4. Stream/Download File
+### GET /stream/{path} - Stream/Download File
 
 Stream or download a video file directly.
 
-```
-GET /api/v1/downloads/stream/{path}
+```http
+GET /api/v1/downloads/stream/defaultuser%2Ftiktok%2Fvideo_123.mp4
 ```
 
-**Path Parameter:** The `path` field from the videos list response (URL-encoded).
-
-**Example:**
-```
-GET /api/v1/downloads/stream/defaultuser%2Ftiktok%2Fvideo_123456.mp4
-```
+**Path Parameter:** URL-encoded relative path from the `path` field in videos list.
 
 **Response:** File stream with appropriate `Content-Type` header.
 
-**Supported File Types:**
+**Supported Types:**
 - Video: `.mp4`, `.webm`, `.mov`, `.avi`, `.mkv`, `.m4v`
 - Audio: `.mp3`, `.wav`, `.ogg`, `.flac`, `.m4a`
 - Documents: `.pdf`, `.epub`, `.mobi`
 
-**Use Case:** Video playback, file download button.
-
 ---
 
-## iOS Integration Example
+## iOS Integration Examples
+
+### Swift Models
+
+```swift
+// Queue Response
+struct QueueResponse: Codable {
+    let downloading: [QueueItem]
+    let pending: [QueueItem]
+    let failed: [QueueItem]
+    let counts: QueueCounts
+}
+
+struct QueueItem: Codable, Identifiable {
+    let id: String
+    let url: String
+    let status: String
+    let username: String
+    let genre: String
+    let errorMessage: String?
+    let retryCount: Int
+    let createdAt: Int
+    let createdFormatted: String
+    let startedAt: Int?
+    let startedFormatted: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, url, status, username, genre
+        case errorMessage = "error_message"
+        case retryCount = "retry_count"
+        case createdAt = "created_at"
+        case createdFormatted = "created_formatted"
+        case startedAt = "started_at"
+        case startedFormatted = "started_formatted"
+    }
+}
+
+struct QueueCounts: Codable {
+    let downloading: Int
+    let pending: Int
+    let failed: Int
+    let total: Int
+}
+
+// Video/File Response
+struct VideosResponse: Codable {
+    let videos: [Video]
+    let total: Int
+    let limit: Int
+    let offset: Int
+    let hasMore: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case videos, total, limit, offset
+        case hasMore = "has_more"
+    }
+}
+
+struct Video: Codable, Identifiable {
+    var id: String { path }
+    let filename: String
+    let username: String
+    let genre: String
+    let path: String
+    let sizeBytes: Int
+    let sizeFormatted: String
+    let modifiedAt: Int
+    let modifiedFormatted: String
+    let `extension`: String
+    
+    enum CodingKeys: String, CodingKey {
+        case filename, username, genre, path
+        case sizeBytes = "size_bytes"
+        case sizeFormatted = "size_formatted"
+        case modifiedAt = "modified_at"
+        case modifiedFormatted = "modified_formatted"
+        case `extension`
+    }
+}
+```
+
+### Swift - Fetch Queue
+
+```swift
+func fetchQueue() async throws -> QueueResponse {
+    var request = URLRequest(url: URL(string: "\(baseURL)/api/v1/downloads/queue")!)
+    request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+    
+    let (data, _) = try await URLSession.shared.data(for: request)
+    return try JSONDecoder().decode(QueueResponse.self, from: data)
+}
+```
+
+### Swift - Retry Failed Download
+
+```swift
+func retryDownload(id: String) async throws {
+    var request = URLRequest(url: URL(string: "\(baseURL)/api/v1/downloads/retry/\(id)")!)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+    
+    let (_, response) = try await URLSession.shared.data(for: request)
+    
+    guard let httpResponse = response as? HTTPURLResponse,
+          httpResponse.statusCode == 200 else {
+        throw APIError.retryFailed
+    }
+}
+```
 
 ### Swift - Fetch Videos
 
 ```swift
 func fetchVideos(username: String? = nil, genre: String? = nil) async throws -> VideosResponse {
     var components = URLComponents(string: "\(baseURL)/api/v1/downloads/videos")!
-    var queryItems: [URLQueryItem] = []
+    var queryItems: [URLQueryItem] = [
+        URLQueryItem(name: "sort", value: "newest"),
+        URLQueryItem(name: "limit", value: "50")
+    ]
     
     if let username = username {
         queryItems.append(URLQueryItem(name: "username", value: username))
@@ -257,8 +393,6 @@ func fetchVideos(username: String? = nil, genre: String? = nil) async throws -> 
     if let genre = genre {
         queryItems.append(URLQueryItem(name: "genre", value: genre))
     }
-    queryItems.append(URLQueryItem(name: "sort", value: "newest"))
-    queryItems.append(URLQueryItem(name: "limit", value: "50"))
     
     components.queryItems = queryItems
     
@@ -270,24 +404,16 @@ func fetchVideos(username: String? = nil, genre: String? = nil) async throws -> 
 }
 ```
 
-### Swift - Build Stream URL
-
-```swift
-func streamURL(for video: Video) -> URL {
-    let encodedPath = video.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? video.path
-    return URL(string: "\(baseURL)/api/v1/downloads/stream/\(encodedPath)")!
-}
-```
-
-### Swift - Video Playback with AVPlayer
+### Swift - Video Playback
 
 ```swift
 import AVKit
 
 func playVideo(_ video: Video) {
-    let url = streamURL(for: video)
+    let encodedPath = video.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? video.path
+    let url = URL(string: "\(baseURL)/api/v1/downloads/stream/\(encodedPath)")!
     
-    // Add auth header for streaming
+    // AVURLAsset with auth header
     let asset = AVURLAsset(url: url, options: [
         "AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(sessionToken)"]
     ])
@@ -305,37 +431,45 @@ func playVideo(_ video: Video) {
 
 ---
 
-## Response Models
+## Recommended Polling Strategy
 
-### Video Object
-```json
-{
-  "filename": "string",      // File name only
-  "username": "string",      // Owner username
-  "genre": "string",         // tiktok, instagram, youtube, pdf, ebook, unknown
-  "path": "string",          // Relative path for streaming (username/genre/filename)
-  "size_bytes": 0,           // File size in bytes
-  "size_formatted": "string", // Human readable size
-  "modified_at": 0,          // Unix timestamp
-  "modified_formatted": "string", // Human readable time
-  "extension": "string"      // File extension (.mp4, .pdf, etc.)
-}
-```
+For the Queue tab, implement smart polling:
 
-### Folder Structure User Object
-```json
-{
-  "username": "string",
-  "genres": {
-    "genre_name": {
-      "count": 0,
-      "size_bytes": 0,
-      "size_formatted": "string"
+```swift
+class QueueManager: ObservableObject {
+    @Published var queue: QueueResponse?
+    private var timer: Timer?
+    
+    func startPolling() {
+        // Initial fetch
+        Task { await refresh() }
+        
+        // Poll every 5 seconds when queue has items
+        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+            Task { await self.refresh() }
+        }
     }
-  },
-  "total_videos": 0,
-  "total_size": 0,
-  "total_size_formatted": "string"
+    
+    func stopPolling() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    func refresh() async {
+        do {
+            let newQueue = try await fetchQueue()
+            await MainActor.run {
+                self.queue = newQueue
+                
+                // Stop polling if queue is empty
+                if newQueue.counts.total == 0 {
+                    self.stopPolling()
+                }
+            }
+        } catch {
+            print("Queue fetch error: \(error)")
+        }
+    }
 }
 ```
 
@@ -368,9 +502,14 @@ func playVideo(_ video: Video) {
 
 ---
 
-## Notes
+## Quick Reference
 
-1. **File system based** - Shows files that actually exist on disk. No database sync issues.
-2. **Always authenticated** - Even if global auth is off, these endpoints require login.
-3. **Path encoding** - Always URL-encode the `path` parameter when streaming.
-4. **Genres** - Common values: `tiktok`, `instagram`, `youtube`, `pdf`, `ebook`, `unknown`
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/queue` | GET | Get downloading, pending, failed items |
+| `/retry/{id}` | POST | Retry a failed download |
+| `/structure` | GET | Get folder tree with counts |
+| `/videos` | GET | List videos with filters |
+| `/stream/{path}` | GET | Stream/download a file |
+
+**Genres:** `tiktok`, `instagram`, `youtube`, `pdf`, `ebook`, `unknown`
