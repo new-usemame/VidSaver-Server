@@ -1,0 +1,26 @@
+---
+description: Update security tracker when adding security features
+globs: 
+alwaysApply: true
+---
+
+# Security Feature Tracking
+
+When implementing any security-related feature, update `docs/security_features_tracker.md` with a brief bullet point.
+
+## What counts as a security feature:
+- Authentication/authorization changes
+- Input validation or sanitization
+- Path traversal or injection protections
+- Rate limiting or access controls
+- Encryption or hashing implementations
+- Session management changes
+- File access restrictions
+
+## Format:
+Add a single line under the relevant section:
+```
+- **Feature name** - Brief description (`file/path.py`)
+```
+
+Keep entries concise (one line each).
