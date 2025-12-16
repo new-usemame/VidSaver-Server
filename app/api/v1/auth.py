@@ -122,10 +122,218 @@ async def auth_status() -> AuthStatusResponse:
         )
 
 
+@router.get(
+    "/login",
+    response_class=HTMLResponse,
+    summary="Login Page",
+    description="Display the login page",
+    tags=["Authentication"]
+)
+async def login_page(redirect: str = "/"):
+    """Display the login page
+    
+    Args:
+        redirect: URL to redirect to after successful login
+    """
+    html_content = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Video Server</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        
+        .login-container {{
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }}
+        
+        .header {{
+            text-align: center;
+            margin-bottom: 30px;
+        }}
+        
+        .header h1 {{
+            font-size: 28px;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }}
+        
+        .header p {{
+            color: #6c757d;
+            font-size: 14px;
+        }}
+        
+        .form-group {{
+            margin-bottom: 20px;
+        }}
+        
+        .form-group label {{
+            display: block;
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }}
+        
+        .form-control {{
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }}
+        
+        .form-control:focus {{
+            outline: none;
+            border-color: #667eea;
+        }}
+        
+        .btn {{
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }}
+        
+        .btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }}
+        
+        .btn:disabled {{
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }}
+        
+        .alert {{
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }}
+        
+        .alert-error {{
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }}
+        
+        .alert-success {{
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }}
+        
+        #error-message {{
+            display: none;
+        }}
+        
+        .logo {{
+            font-size: 48px;
+            margin-bottom: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="header">
+            <div class="logo">🔐</div>
+            <h1>Video Server</h1>
+            <p>Enter your password to continue</p>
+        </div>
+        
+        <div id="error-message" class="alert alert-error"></div>
+        
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" class="form-control" id="password" placeholder="Enter password" required autofocus>
+            </div>
+            
+            <button type="submit" class="btn" id="submit-btn">
+                Login
+            </button>
+        </form>
+    </div>
+    
+    <script>
+        const redirectUrl = {repr(redirect)};
+        
+        async function handleLogin(event) {{
+            event.preventDefault();
+            
+            const password = document.getElementById('password').value;
+            const submitBtn = document.getElementById('submit-btn');
+            const errorDiv = document.getElementById('error-message');
+            
+            // Disable button
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+            errorDiv.style.display = 'none';
+            
+            try {{
+                const response = await fetch('/api/v1/auth/login', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json'
+                    }},
+                    body: JSON.stringify({{ password: password }})
+                }});
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {{
+                    // Login successful - redirect
+                    window.location.href = redirectUrl;
+                }} else {{
+                    // Show error
+                    errorDiv.textContent = data.detail?.message || data.message || 'Invalid password';
+                    errorDiv.style.display = 'block';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Login';
+                }}
+            }} catch (error) {{
+                errorDiv.textContent = 'Connection error. Please try again.';
+                errorDiv.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }}
+        }}
+    </script>
+</body>
+</html>'''
+    
+    return HTMLResponse(content=html_content)
+
+
 @router.post(
     "/login",
     response_model=LoginResponse,
-    summary="Login",
+    summary="Login API",
     description="Login with the universal access password to get a session token",
     tags=["Authentication"]
 )
