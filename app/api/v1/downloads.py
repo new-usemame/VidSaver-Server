@@ -520,6 +520,78 @@ async def get_download_queue(request: Request):
         }
 
 
+@router.post(
+    "/retry/{download_id}",
+    summary="Retry Failed Download",
+    description="Reset a failed download back to pending status so it will be retried.",
+    responses={
+        200: {"description": "Download queued for retry"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Download not found"},
+        400: {"description": "Download is not in failed status"}
+    }
+)
+async def retry_download(request: Request, download_id: str):
+    """Retry a failed download
+    
+    Resets the download status from 'failed' back to 'pending' so the
+    download worker will pick it up and try again.
+    """
+    await require_auth(request)
+    
+    config = get_config()
+    
+    try:
+        db = DatabaseService(db_path=config.database.path)
+        
+        # Get the download
+        download = db.get_download(download_id)
+        
+        if not download:
+            db.close_connection()
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "not_found", "message": "Download not found"}
+            )
+        
+        # Check if it's actually failed
+        if download.status != DownloadStatus.FAILED:
+            db.close_connection()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_status",
+                    "message": f"Cannot retry download with status '{download.status.value}'. Only failed downloads can be retried."
+                }
+            )
+        
+        # Reset to pending status
+        db.update_download_status(
+            download_id=download_id,
+            status=DownloadStatus.PENDING,
+            error_message=None  # Clear the error message
+        )
+        
+        db.close_connection()
+        
+        logger.info(f"Download {download_id} queued for retry")
+        
+        return {
+            "success": True,
+            "message": "Download queued for retry",
+            "download_id": download_id
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrying download {download_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "server_error", "message": str(e)}
+        )
+
+
 @router.get(
     "/browse",
     response_class=HTMLResponse,
@@ -1280,6 +1352,36 @@ def _get_browse_html() -> str:
             display: flex;
             justify-content: center;
         }
+        
+        .queue-item-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        
+        .btn-retry {
+            padding: 6px 12px;
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid rgba(76, 175, 80, 0.4);
+            border-radius: 6px;
+            color: #4caf50;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .btn-retry:hover {
+            background: rgba(76, 175, 80, 0.3);
+            border-color: rgba(76, 175, 80, 0.6);
+        }
+        
+        .btn-retry:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -1873,12 +1975,49 @@ def _get_browse_html() -> str:
                                     ${escapeHtml(item.error_message)}
                                 </div>
                             ` : ''}
+                            ${section === 'failed' ? `
+                                <div class="queue-item-actions">
+                                    <button class="btn-retry" onclick="retryDownload('${item.id}')" id="retry-${item.id}">
+                                        🔄 Retry
+                                    </button>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
                 `;
             }
             
             container.innerHTML = html;
+        }
+        
+        async function retryDownload(downloadId) {
+            const btn = document.getElementById(`retry-${downloadId}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Retrying...';
+            }
+            
+            try {
+                const response = await fetch(`/api/v1/downloads/retry/${downloadId}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail?.message || 'Failed to retry');
+                }
+                
+                // Reload queue to show updated status
+                await loadQueue();
+                
+            } catch (error) {
+                console.error('Error retrying download:', error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '❌ Failed - Click to retry';
+                }
+                alert('Failed to retry download: ' + error.message);
+            }
         }
         
         function updateQueueBadge() {

@@ -98,6 +98,31 @@ GET /api/v1/downloads/queue
 
 ---
 
+### 1b. Retry Failed Download
+
+Reset a failed download back to pending so it will be retried.
+
+```
+POST /api/v1/downloads/retry/{download_id}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Download queued for retry",
+  "download_id": "uuid-string"
+}
+```
+
+**Error Responses:**
+- `404` - Download not found
+- `400` - Download is not in failed status (can only retry failed downloads)
+
+**Use Case:** Retry button for failed downloads.
+
+---
+
 ### 2. Get Folder Structure
 
 Returns the complete folder hierarchy with file counts and sizes (from file system).
