@@ -552,21 +552,59 @@ def info(as_json: bool):
 
 @cli.command()
 def tray():
-    """Start the system tray app."""
+    """Start the system tray app.
+    
+    On macOS, this runs in the foreground to properly display the menu bar icon.
+    The tray icon will appear in your system tray/menu bar.
+    """
     running, pid = is_tray_app_running()
     
     if running:
         print_warning(f"Tray app is already running (PID: {pid})")
         return
     
-    success, pid = start_tray_app()
-    
-    if success:
-        print_success(f"Tray app started (PID: {pid})")
-    else:
-        print_error("Failed to start tray app")
-        print_info("Make sure pystray is installed: pip install pystray")
+    # Check if pystray is available
+    try:
+        import pystray
+    except ImportError:
+        print_error("pystray is not installed")
+        print_info("Install with: pip install pystray Pillow")
         sys.exit(1)
+    
+    tray_script = PROJECT_DIR / "tray_app.py"
+    if not tray_script.exists():
+        print_error("Tray app script not found")
+        sys.exit(1)
+    
+    # On macOS, GUI apps must run in the foreground to connect to the window server
+    # Running via subprocess doesn't work properly for menu bar apps
+    if get_platform() == 'darwin':
+        print_info("Starting tray app (menu bar icon)...")
+        print_status("[dim]Press Ctrl+C to quit the tray app[/dim]")
+        print()
+        
+        # Import and run directly - this is the only way to get the icon to appear on macOS
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("tray_app", tray_script)
+        tray_module = importlib.util.module_from_spec(spec)
+        
+        try:
+            spec.loader.exec_module(tray_module)
+            # The tray app's main() will block until quit
+            if hasattr(tray_module, 'main'):
+                tray_module.main()
+        except KeyboardInterrupt:
+            print()
+            print_info("Tray app stopped")
+    else:
+        # On Windows/Linux, subprocess works fine
+        success, pid = start_tray_app()
+        
+        if success:
+            print_success(f"Tray app started (PID: {pid})")
+        else:
+            print_error("Failed to start tray app")
+            sys.exit(1)
 
 
 @cli.command()

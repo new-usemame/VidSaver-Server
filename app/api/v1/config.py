@@ -228,6 +228,67 @@ async def get_setup_page():
             line-height: 1.6;
         }
         
+        .tools-section {
+            background: #e8f4f8;
+            border-left: 4px solid #17a2b8;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        
+        .tools-section h3 {
+            color: #0c5460;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .tools-section p {
+            color: #0c5460;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        
+        .tool-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .tool-list li {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .tool-list a {
+            color: #0056b3;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .tool-list a:hover {
+            text-decoration: underline;
+        }
+        
+        .tool-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-dev {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-ai {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+        
         .footer {
             text-align: center;
             padding: 20px;
@@ -414,6 +475,28 @@ async def get_setup_page():
                         <li>Save settings and restart your router if needed</li>
                         <li>Your server will then be accessible from anywhere via the WAN URL</li>
                     </ol>
+                </div>
+                
+                <div class="tools-section">
+                    <h3>🔧 Recommended Port Forwarding Tools</h3>
+                    <p>These apps use UPnP/NAT-PMP to simplify port forwarding without accessing your router's admin panel:</p>
+                    <ul class="tool-list">
+                        <li>
+                            🍎 <strong>macOS:</strong>
+                            <a href="https://www.codingmonkeys.de/portmap/" target="_blank" rel="noopener">Port Map</a>
+                            <span class="tool-badge badge-dev">Developer Pick</span>
+                        </li>
+                        <li>
+                            🪟 <strong>Windows:</strong>
+                            <a href="https://github.com/kaklakariada/portmapper" target="_blank" rel="noopener">UPnP PortMapper</a>
+                            <span class="tool-badge badge-ai">AI Suggestion</span>
+                        </li>
+                        <li>
+                            🐧 <strong>Linux:</strong>
+                            <a href="https://kaklakariada.github.io/portmapper/" target="_blank" rel="noopener">UPnP PortMapper</a>
+                            <span class="tool-badge badge-ai">AI Suggestion</span>
+                        </li>
+                    </ul>
                 </div>
                 
                 <div class="btn-group">
