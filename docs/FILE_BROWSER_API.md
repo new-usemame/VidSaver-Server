@@ -43,9 +43,64 @@ Response:
 
 ## Endpoints
 
-### 1. Get Folder Structure
+### 1. Get Download Queue
 
-Returns the complete folder hierarchy with file counts and sizes.
+Returns pending, in-progress, and failed downloads from the database.
+
+```
+GET /api/v1/downloads/queue
+```
+
+**Response:**
+```json
+{
+  "downloading": [
+    {
+      "id": "uuid-string",
+      "url": "https://tiktok.com/...",
+      "status": "downloading",
+      "username": "defaultuser",
+      "genre": "tiktok",
+      "error_message": null,
+      "retry_count": 0,
+      "created_at": 1702742400,
+      "created_formatted": "2 hours ago",
+      "started_at": 1702742410,
+      "started_formatted": "2 hours ago"
+    }
+  ],
+  "pending": [...],
+  "failed": [
+    {
+      "id": "uuid-string",
+      "url": "https://instagram.com/...",
+      "status": "failed",
+      "username": "defaultuser",
+      "genre": "instagram",
+      "error_message": "HTTP Error 404: Not Found",
+      "retry_count": 3,
+      "created_at": 1702742000,
+      "created_formatted": "3 hours ago",
+      "started_at": null,
+      "started_formatted": null
+    }
+  ],
+  "counts": {
+    "downloading": 1,
+    "pending": 2,
+    "failed": 1,
+    "total": 4
+  }
+}
+```
+
+**Use Case:** Show download progress, pending queue, and failed downloads with errors.
+
+---
+
+### 2. Get Folder Structure
+
+Returns the complete folder hierarchy with file counts and sizes (from file system).
 
 ```
 GET /api/v1/downloads/structure
@@ -85,7 +140,7 @@ GET /api/v1/downloads/structure
 
 ---
 
-### 2. Get Videos List
+### 3. Get Videos List
 
 Returns a flat list of videos with filtering, sorting, and pagination.
 
@@ -136,7 +191,7 @@ GET /api/v1/downloads/videos?username=defaultuser&genre=tiktok&sort=newest&limit
 
 ---
 
-### 3. Stream/Download File
+### 4. Stream/Download File
 
 Stream or download a video file directly.
 

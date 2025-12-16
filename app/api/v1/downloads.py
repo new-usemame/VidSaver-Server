@@ -441,6 +441,86 @@ async def stream_file(request: Request, file_path: str):
 
 
 @router.get(
+    "/queue",
+    summary="Get Download Queue",
+    description="Returns pending, in-progress, and failed downloads from the database.",
+    responses={
+        200: {"description": "Queue retrieved successfully"},
+        401: {"description": "Authentication required"},
+        500: {"description": "Internal server error"}
+    }
+)
+async def get_download_queue(request: Request):
+    """Get download queue status from database
+    
+    Returns downloads that are:
+    - pending: Waiting to be processed
+    - downloading: Currently being downloaded
+    - failed: Failed with an error
+    """
+    await require_auth(request)
+    
+    config = get_config()
+    
+    try:
+        db = DatabaseService(db_path=config.database.path)
+        
+        # Get downloads by status
+        pending = db.get_downloads_by_status(DownloadStatus.PENDING, limit=50)
+        queued = db.get_downloads_by_status(DownloadStatus.QUEUED, limit=50)
+        downloading = db.get_downloads_by_status(DownloadStatus.DOWNLOADING, limit=10)
+        failed = db.get_downloads_by_status(DownloadStatus.FAILED, limit=50)
+        
+        # Combine pending and queued (they're essentially the same)
+        all_pending = pending + queued
+        
+        # Get usernames for all downloads
+        def get_username(user_id: int) -> str:
+            user = db.get_user_by_id(user_id)
+            return user.username if user else "unknown"
+        
+        # Format download for response
+        def format_download(d):
+            return {
+                "id": d.id,
+                "url": d.url,
+                "status": d.status.value,
+                "username": get_username(d.user_id),
+                "genre": d.genre,
+                "error_message": d.error_message,
+                "retry_count": d.retry_count,
+                "created_at": d.created_at,
+                "created_formatted": format_timestamp(d.created_at),
+                "started_at": d.started_at,
+                "started_formatted": format_timestamp(d.started_at) if d.started_at else None,
+            }
+        
+        db.close_connection()
+        
+        return {
+            "downloading": [format_download(d) for d in downloading],
+            "pending": [format_download(d) for d in all_pending],
+            "failed": [format_download(d) for d in failed],
+            "counts": {
+                "downloading": len(downloading),
+                "pending": len(all_pending),
+                "failed": len(failed),
+                "total": len(downloading) + len(all_pending) + len(failed)
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting download queue: {e}", exc_info=True)
+        return {
+            "downloading": [],
+            "pending": [],
+            "failed": [],
+            "counts": {"downloading": 0, "pending": 0, "failed": 0, "total": 0},
+            "error": str(e)
+        }
+
+
+@router.get(
     "/browse",
     response_class=HTMLResponse,
     summary="Downloads Browser Page",
@@ -1039,6 +1119,167 @@ def _get_browse_html() -> str:
             color: #888;
             font-size: 0.9rem;
         }
+        
+        /* Queue Badge */
+        .queue-badge {
+            background: #ff6b6b;
+            color: white;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+            font-weight: bold;
+        }
+        
+        /* Queue Container */
+        .queue-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .queue-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .queue-section-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .queue-section-icon {
+            font-size: 1.2rem;
+        }
+        
+        .queue-section-title {
+            flex: 1;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        
+        .queue-section-count {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+        
+        .queue-list {
+            padding: 10px;
+        }
+        
+        .queue-empty {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .queue-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+        }
+        
+        .queue-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+        
+        .queue-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .queue-item-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        
+        .queue-item-icon.downloading {
+            animation: pulse-download 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-download {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.95); }
+        }
+        
+        .queue-item-content {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .queue-item-url {
+            font-size: 0.9rem;
+            color: #e0e0e0;
+            word-break: break-all;
+            margin-bottom: 6px;
+        }
+        
+        .queue-item-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 0.8rem;
+            color: #888;
+        }
+        
+        .queue-item-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        
+        .queue-item-badge.genre {
+            background: rgba(100, 181, 246, 0.2);
+            color: #64b5f6;
+        }
+        
+        .queue-item-badge.status-downloading {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+        }
+        
+        .queue-item-badge.status-pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+        
+        .queue-item-badge.status-failed {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+        }
+        
+        .queue-item-error {
+            margin-top: 8px;
+            padding: 10px;
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #ff8a80;
+        }
+        
+        .queue-item-error-label {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .queue-actions {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+        }
     </style>
 </head>
 <body>
@@ -1051,6 +1292,7 @@ def _get_browse_html() -> str:
     <div class="tabs">
         <button class="tab active" onclick="showTab('folders')">📂 Folder View</button>
         <button class="tab" onclick="showTab('videos')">🎬 All Videos</button>
+        <button class="tab" onclick="showTab('queue')">⏳ Queue <span id="queue-badge" class="queue-badge" style="display: none;">0</span></button>
     </div>
     
     <div class="content">
@@ -1112,6 +1354,51 @@ def _get_browse_html() -> str:
                 <button onclick="nextPage()" id="btn-next">Next →</button>
             </div>
         </div>
+        
+        <!-- Queue Tab -->
+        <div id="tab-queue" class="tab-content">
+            <div class="queue-container">
+                <!-- Downloading Section -->
+                <div class="queue-section" id="section-downloading">
+                    <div class="queue-section-header">
+                        <span class="queue-section-icon">⬇️</span>
+                        <span class="queue-section-title">Downloading</span>
+                        <span class="queue-section-count" id="count-downloading">0</span>
+                    </div>
+                    <div class="queue-list" id="list-downloading">
+                        <div class="queue-empty">No active downloads</div>
+                    </div>
+                </div>
+                
+                <!-- Pending Section -->
+                <div class="queue-section" id="section-pending">
+                    <div class="queue-section-header">
+                        <span class="queue-section-icon">⏳</span>
+                        <span class="queue-section-title">Pending</span>
+                        <span class="queue-section-count" id="count-pending">0</span>
+                    </div>
+                    <div class="queue-list" id="list-pending">
+                        <div class="queue-empty">No pending downloads</div>
+                    </div>
+                </div>
+                
+                <!-- Failed Section -->
+                <div class="queue-section" id="section-failed">
+                    <div class="queue-section-header">
+                        <span class="queue-section-icon">❌</span>
+                        <span class="queue-section-title">Failed</span>
+                        <span class="queue-section-count" id="count-failed">0</span>
+                    </div>
+                    <div class="queue-list" id="list-failed">
+                        <div class="queue-empty">No failed downloads</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="queue-actions">
+                <button class="btn btn-secondary" onclick="loadQueue()">🔄 Refresh</button>
+            </div>
+        </div>
     </div>
     
     <!-- Video Modal -->
@@ -1150,6 +1437,9 @@ def _get_browse_html() -> str:
         document.addEventListener('DOMContentLoaded', () => {
             loadFolderStructure();
             loadVideos();
+            loadQueue();
+            // Auto-refresh queue every 5 seconds
+            setInterval(loadQueue, 5000);
         });
         
         // Tab switching
@@ -1495,6 +1785,109 @@ def _get_browse_html() -> str:
         function closeModalOnOverlay(event) {
             if (event.target.id === 'modal-overlay') {
                 closeModal();
+            }
+        }
+        
+        // Queue functions
+        let queueData = null;
+        
+        async function loadQueue() {
+            try {
+                const response = await fetch('/api/v1/downloads/queue');
+                if (!response.ok) throw new Error('Failed to load queue');
+                
+                queueData = await response.json();
+                renderQueue();
+                updateQueueBadge();
+            } catch (error) {
+                console.error('Error loading queue:', error);
+            }
+        }
+        
+        function renderQueue() {
+            if (!queueData) return;
+            
+            // Render downloading
+            renderQueueSection('downloading', queueData.downloading, '⬇️');
+            
+            // Render pending
+            renderQueueSection('pending', queueData.pending, '⏳');
+            
+            // Render failed
+            renderQueueSection('failed', queueData.failed, '❌');
+            
+            // Update counts
+            document.getElementById('count-downloading').textContent = queueData.counts.downloading;
+            document.getElementById('count-pending').textContent = queueData.counts.pending;
+            document.getElementById('count-failed').textContent = queueData.counts.failed;
+        }
+        
+        function renderQueueSection(section, items, defaultIcon) {
+            const container = document.getElementById(`list-${section}`);
+            
+            if (!items || items.length === 0) {
+                const emptyMessages = {
+                    'downloading': 'No active downloads',
+                    'pending': 'No pending downloads',
+                    'failed': 'No failed downloads'
+                };
+                container.innerHTML = `<div class="queue-empty">${emptyMessages[section]}</div>`;
+                return;
+            }
+            
+            const genreIcons = {
+                'tiktok': '🎵',
+                'instagram': '📷',
+                'youtube': '▶️',
+                'pdf': '📄',
+                'ebook': '📚',
+                'unknown': '❓'
+            };
+            
+            let html = '';
+            for (const item of items) {
+                const icon = genreIcons[item.genre] || defaultIcon;
+                const iconClass = section === 'downloading' ? 'downloading' : '';
+                
+                // Truncate URL for display
+                let displayUrl = item.url;
+                if (displayUrl.length > 80) {
+                    displayUrl = displayUrl.substring(0, 77) + '...';
+                }
+                
+                html += `
+                    <div class="queue-item">
+                        <div class="queue-item-icon ${iconClass}">${icon}</div>
+                        <div class="queue-item-content">
+                            <div class="queue-item-url" title="${escapeHtml(item.url)}">${escapeHtml(displayUrl)}</div>
+                            <div class="queue-item-meta">
+                                <span class="queue-item-badge genre">${item.genre}</span>
+                                <span class="queue-item-badge status-${section}">${item.status}</span>
+                                <span>👤 ${escapeHtml(item.username)}</span>
+                                <span>📅 ${item.created_formatted}</span>
+                                ${item.retry_count > 0 ? `<span>🔄 ${item.retry_count} retries</span>` : ''}
+                            </div>
+                            ${item.error_message ? `
+                                <div class="queue-item-error">
+                                    <div class="queue-item-error-label">Error:</div>
+                                    ${escapeHtml(item.error_message)}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        function updateQueueBadge() {
+            const badge = document.getElementById('queue-badge');
+            if (queueData && queueData.counts.total > 0) {
+                badge.textContent = queueData.counts.total;
+                badge.style.display = 'inline';
+            } else {
+                badge.style.display = 'none';
             }
         }
         
