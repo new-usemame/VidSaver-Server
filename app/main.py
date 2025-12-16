@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -198,8 +198,6 @@ async def authentication_middleware(request: Request, call_next):
         "/redoc",
         "/openapi.json",
         "/api/v1/health",
-        "/api/v1/config/editor",  # Config editor page (login handled in UI)
-        "/api/v1/config/setup",   # QR setup page
     ]
     
     # Check if path is public or under /api/v1/auth/
@@ -222,8 +220,28 @@ async def authentication_middleware(request: Request, call_next):
         # Try to get from cookie
         token = request.cookies.get("session_token")
     
+    # Helper to check if request is from a browser (wants HTML)
+    def is_browser_request():
+        accept = request.headers.get("Accept", "")
+        user_agent = request.headers.get("User-Agent", "").lower()
+        # Check if Accept header prefers HTML or if it's a typical browser user agent
+        return (
+            "text/html" in accept or 
+            "mozilla" in user_agent or 
+            "webkit" in user_agent or
+            "chrome" in user_agent or
+            "safari" in user_agent
+        )
+    
+    # Build login URL with redirect back to current page
+    from urllib.parse import urlencode
+    login_url = "/api/v1/auth/login?" + urlencode({"redirect": str(request.url)})
+    
     # Validate token
     if not token:
+        # Redirect browsers to login page, return JSON for API clients
+        if is_browser_request():
+            return RedirectResponse(url=login_url, status_code=status.HTTP_302_FOUND)
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={
@@ -239,6 +257,9 @@ async def authentication_middleware(request: Request, call_next):
     
     is_valid, session_id = auth_service.validate_session(token)
     if not is_valid:
+        # Redirect browsers to login page, return JSON for API clients
+        if is_browser_request():
+            return RedirectResponse(url=login_url, status_code=status.HTTP_302_FOUND)
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={

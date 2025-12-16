@@ -1012,24 +1012,6 @@ async def get_config_editor():
         
         <div class="content">
             <div id="alert-container"></div>
-            
-            <!-- Login Overlay -->
-            <div id="login-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
-                <div style="background: white; padding: 40px; border-radius: 16px; max-width: 400px; width: 90%; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-                    <div style="font-size: 48px; margin-bottom: 20px;">🔐</div>
-                    <h2 style="margin: 0 0 10px 0; color: #2c3e50;">Authentication Required</h2>
-                    <p style="color: #6c757d; margin-bottom: 25px;">Enter the server password to access configuration.</p>
-                    <div id="login-error" style="display: none; background: #f8d7da; color: #721c24; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; text-align: left;"></div>
-                    <input type="password" id="login-password" placeholder="Enter password" 
-                           style="width: 100%; padding: 12px 15px; font-size: 16px; border: 2px solid #dee2e6; border-radius: 8px; margin-bottom: 15px; box-sizing: border-box;"
-                           onkeypress="if(event.key==='Enter') doLogin()">
-                    <button id="login-btn" onclick="doLogin()" 
-                            style="width: 100%; padding: 12px; font-size: 16px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
-                        Login
-                    </button>
-                </div>
-            </div>
-            
             <div id="loading" class="loading">
                 <div class="spinner"></div>
                 <p style="margin-top: 15px;">Loading configuration...</p>
@@ -1705,17 +1687,8 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
             try {
                 document.getElementById('loading').style.display = 'block';
                 document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
-                hideLoginOverlay();
                 
                 const response = await fetch('/api/v1/config');
-                
-                // Handle authentication required
-                if (response.status === 401) {
-                    document.getElementById('loading').style.display = 'none';
-                    showLoginOverlay();
-                    return;
-                }
-                
                 if (!response.ok) throw new Error('Failed to load configuration');
                 
                 config = await response.json();
@@ -1729,55 +1702,6 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
             } catch (error) {
                 showAlert('Error loading configuration: ' + error.message, 'error');
                 document.getElementById('loading').style.display = 'none';
-            }
-        }
-        
-        function showLoginOverlay() {
-            document.getElementById('login-overlay').style.display = 'flex';
-        }
-        
-        function hideLoginOverlay() {
-            document.getElementById('login-overlay').style.display = 'none';
-            document.getElementById('login-error').style.display = 'none';
-            document.getElementById('login-password').value = '';
-        }
-        
-        async function doLogin() {
-            const password = document.getElementById('login-password').value;
-            const errorEl = document.getElementById('login-error');
-            const btn = document.getElementById('login-btn');
-            
-            if (!password) {
-                errorEl.textContent = 'Please enter the password';
-                errorEl.style.display = 'block';
-                return;
-            }
-            
-            btn.disabled = true;
-            btn.textContent = 'Logging in...';
-            errorEl.style.display = 'none';
-            
-            try {
-                const response = await fetch('/api/v1/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password })
-                });
-                
-                if (response.ok) {
-                    hideLoginOverlay();
-                    loadConfig();
-                } else {
-                    const data = await response.json();
-                    errorEl.textContent = data.detail?.message || 'Invalid password';
-                    errorEl.style.display = 'block';
-                }
-            } catch (error) {
-                errorEl.textContent = 'Login failed: ' + error.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Login';
             }
         }
         
