@@ -223,6 +223,30 @@ class DownloaderConfig(BaseSettings):
         return v
 
 
+class AuthConfig(BaseSettings):
+    """Authentication configuration for universal password protection"""
+    
+    enabled: bool = Field(
+        default=False,
+        description="Enable password authentication (protects all API endpoints)"
+    )
+    password_hash: Optional[str] = Field(
+        default=None,
+        description="Bcrypt hash of the universal access password (set via CLI: python manage.py auth set-password)"
+    )
+    session_timeout_hours: int = Field(
+        default=24,
+        ge=1,
+        le=720,  # Max 30 days
+        description="Session timeout in hours (how long before re-authentication is required)"
+    )
+    
+    model_config = SettingsConfigDict(
+        env_prefix="VIDEO_SERVER_AUTH_",
+        case_sensitive=False
+    )
+
+
 class SecurityConfig(BaseSettings):
     """Security configuration"""
     
@@ -331,6 +355,7 @@ class Config(BaseSettings):
     database: DatabaseConfig = Field(default_factory=lambda: DatabaseConfig(_env_file=None))
     downloads: DownloadsConfig = Field(default_factory=lambda: DownloadsConfig(_env_file=None))
     downloader: DownloaderConfig = Field(default_factory=lambda: DownloaderConfig(_env_file=None))
+    auth: AuthConfig = Field(default_factory=lambda: AuthConfig(_env_file=None))
     security: SecurityConfig = Field(default_factory=lambda: SecurityConfig(_env_file=None))
     logging: LoggingConfig = Field(default_factory=lambda: LoggingConfig(_env_file=None))
     
@@ -391,6 +416,7 @@ class Config(BaseSettings):
             database=DatabaseConfig(**config_data.get('database', {})),
             downloads=DownloadsConfig(**config_data.get('downloads', {})),
             downloader=DownloaderConfig(**config_data.get('downloader', {})),
+            auth=AuthConfig(**config_data.get('auth', {})),
             security=SecurityConfig(**config_data.get('security', {})),
             logging=LoggingConfig(**config_data.get('logging', {}))
         )
@@ -458,6 +484,11 @@ class Config(BaseSettings):
                 'user_agent_rotation': self.downloader.user_agent_rotation,
                 'timeout': self.downloader.timeout,
                 'cookie_file': self.downloader.cookie_file,
+            },
+            'auth': {
+                'enabled': self.auth.enabled,
+                'password_hash': self.auth.password_hash,
+                'session_timeout_hours': self.auth.session_timeout_hours,
             },
             'security': {
                 'api_keys': self.security.api_keys,

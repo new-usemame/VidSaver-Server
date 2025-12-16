@@ -981,6 +981,245 @@ def console(refresh: int):
     rich_console.print("[bold cyan]Console mode exited[/bold cyan]")
 
 
+# ============================================
+# Authentication Commands
+# ============================================
+
+@cli.group()
+def auth():
+    """Manage authentication settings.
+    
+    Use these commands to configure universal password protection
+    for your video download server.
+    """
+    pass
+
+
+@auth.command('set-password')
+def auth_set_password():
+    """Set the universal access password.
+    
+    Prompts for a password securely (hidden input), hashes it using bcrypt,
+    and saves it to the config file. This password will be required for
+    all API access when authentication is enabled.
+    """
+    import getpass
+    from app.services.auth_service import AuthService
+    from app.core.config import Config
+    
+    print_info("Setting universal access password")
+    print()
+    
+    # Check if config file exists
+    if not CONFIG_FILE.exists():
+        print_error(f"Config file not found: {CONFIG_FILE}")
+        print_info("Create from example: cp config/config.yaml.example config/config.yaml")
+        sys.exit(1)
+    
+    # Get password securely
+    try:
+        password = getpass.getpass("Enter new password: ")
+        if not password:
+            print_error("Password cannot be empty")
+            sys.exit(1)
+        
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            print_error("Passwords do not match")
+            sys.exit(1)
+        
+        # Validate minimum length
+        if len(password) < 4:
+            print_error("Password must be at least 4 characters")
+            sys.exit(1)
+        
+    except KeyboardInterrupt:
+        print()
+        print_warning("Cancelled")
+        sys.exit(0)
+    
+    # Hash the password
+    password_hash = AuthService.hash_password(password)
+    
+    # Load current config and update
+    try:
+        config = Config.load(str(CONFIG_FILE))
+    except Exception as e:
+        print_error(f"Failed to load config: {e}")
+        sys.exit(1)
+    
+    # Update config with new password hash
+    import yaml
+    with open(CONFIG_FILE, 'r') as f:
+        config_data = yaml.safe_load(f) or {}
+    
+    # Ensure auth section exists
+    if 'auth' not in config_data:
+        config_data['auth'] = {}
+    
+    config_data['auth']['password_hash'] = password_hash
+    
+    # Save updated config
+    with open(CONFIG_FILE, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+    
+    print_success("Password set successfully!")
+    print()
+    
+    # Check if auth is enabled
+    auth_enabled = config_data.get('auth', {}).get('enabled', False)
+    if not auth_enabled:
+        print_warning("Authentication is currently DISABLED")
+        print_info("Enable it with: python manage.py auth enable")
+    else:
+        print_info("Authentication is enabled. Users must login with this password.")
+    
+    print()
+    print_info("If the server is running, restart it to apply changes:")
+    print_status("  [cyan]python manage.py restart[/cyan]")
+
+
+@auth.command('enable')
+def auth_enable():
+    """Enable authentication.
+    
+    When enabled, all API endpoints (except health and auth endpoints)
+    will require a valid session token obtained by logging in with
+    the universal password.
+    """
+    import yaml
+    
+    if not CONFIG_FILE.exists():
+        print_error(f"Config file not found: {CONFIG_FILE}")
+        print_info("Create from example: cp config/config.yaml.example config/config.yaml")
+        sys.exit(1)
+    
+    # Load config
+    with open(CONFIG_FILE, 'r') as f:
+        config_data = yaml.safe_load(f) or {}
+    
+    # Check if password is set
+    password_hash = config_data.get('auth', {}).get('password_hash')
+    if not password_hash:
+        print_error("No password set!")
+        print_info("Set a password first: python manage.py auth set-password")
+        sys.exit(1)
+    
+    # Ensure auth section exists
+    if 'auth' not in config_data:
+        config_data['auth'] = {}
+    
+    # Enable auth
+    config_data['auth']['enabled'] = True
+    
+    # Save config
+    with open(CONFIG_FILE, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+    
+    print_success("Authentication ENABLED")
+    print()
+    print_info("All API endpoints now require authentication.")
+    print_info("Users must login at: POST /api/v1/auth/login")
+    print()
+    print_info("If the server is running, restart it to apply changes:")
+    print_status("  [cyan]python manage.py restart[/cyan]")
+
+
+@auth.command('disable')
+def auth_disable():
+    """Disable authentication.
+    
+    When disabled, all API endpoints are accessible without
+    authentication. The password hash is preserved for when
+    you re-enable authentication.
+    """
+    import yaml
+    
+    if not CONFIG_FILE.exists():
+        print_error(f"Config file not found: {CONFIG_FILE}")
+        sys.exit(1)
+    
+    # Load config
+    with open(CONFIG_FILE, 'r') as f:
+        config_data = yaml.safe_load(f) or {}
+    
+    # Ensure auth section exists
+    if 'auth' not in config_data:
+        config_data['auth'] = {}
+    
+    # Disable auth
+    config_data['auth']['enabled'] = False
+    
+    # Save config
+    with open(CONFIG_FILE, 'w') as f:
+        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+    
+    print_success("Authentication DISABLED")
+    print()
+    print_warning("All API endpoints are now accessible without authentication!")
+    print()
+    print_info("If the server is running, restart it to apply changes:")
+    print_status("  [cyan]python manage.py restart[/cyan]")
+
+
+@auth.command('status')
+def auth_status():
+    """Show current authentication status.
+    
+    Displays whether authentication is enabled, if a password is set,
+    and the current session timeout setting.
+    """
+    import yaml
+    
+    if not CONFIG_FILE.exists():
+        print_warning(f"Config file not found: {CONFIG_FILE}")
+        print_info("Authentication is not configured.")
+        return
+    
+    # Load config
+    with open(CONFIG_FILE, 'r') as f:
+        config_data = yaml.safe_load(f) or {}
+    
+    auth_config = config_data.get('auth', {})
+    enabled = auth_config.get('enabled', False)
+    password_hash = auth_config.get('password_hash')
+    timeout_hours = auth_config.get('session_timeout_hours', 24)
+    
+    print()
+    print_status("[bold]Authentication Status[/bold]")
+    print()
+    
+    if HAS_RICH:
+        table = Table(show_header=False, box=None)
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value")
+        
+        status_text = "[green]ENABLED[/green]" if enabled else "[yellow]DISABLED[/yellow]"
+        table.add_row("Status", status_text)
+        
+        password_text = "[green]Set[/green]" if password_hash else "[red]Not set[/red]"
+        table.add_row("Password", password_text)
+        
+        table.add_row("Session Timeout", f"{timeout_hours} hours")
+        
+        rich_console.print(table)
+    else:
+        print(f"  Status:          {'ENABLED' if enabled else 'DISABLED'}")
+        print(f"  Password:        {'Set' if password_hash else 'Not set'}")
+        print(f"  Session Timeout: {timeout_hours} hours")
+    
+    print()
+    
+    # Show relevant commands
+    if not password_hash:
+        print_info("Set a password: python manage.py auth set-password")
+    elif not enabled:
+        print_info("Enable auth: python manage.py auth enable")
+    else:
+        print_info("Auth is active. Users must login to access API.")
+        print_info("Disable auth: python manage.py auth disable")
+
+
 if __name__ == "__main__":
     cli()
 

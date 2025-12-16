@@ -158,6 +158,78 @@ async def logging_middleware(request: Request, call_next):
         raise
 
 
+@app.middleware("http")
+async def authentication_middleware(request: Request, call_next):
+    """Enforce authentication on protected endpoints
+    
+    - Checks if auth is enabled in config
+    - Allows unauthenticated access to public paths
+    - Requires valid session token for all other endpoints
+    """
+    config = get_config()
+    
+    # Skip if auth is disabled or no password is set
+    if not config.auth.enabled or not config.auth.password_hash:
+        return await call_next(request)
+    
+    # Define public paths that don't require authentication
+    public_paths = [
+        "/",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/v1/health",
+    ]
+    
+    # Check if path is public or under /api/v1/auth/
+    path = request.url.path
+    is_public = (
+        path in public_paths or
+        path.startswith("/api/v1/auth/") or
+        path.startswith("/api/v1/auth")  # Handle /api/v1/auth without trailing slash
+    )
+    
+    if is_public:
+        return await call_next(request)
+    
+    # Extract token from Authorization header or cookie
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    else:
+        # Try to get from cookie
+        token = request.cookies.get("session_token")
+    
+    # Validate token
+    if not token:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={
+                "error": "authentication_required",
+                "message": "Authentication required. Please login at /api/v1/auth/login"
+            },
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    # Import auth service and validate session
+    from app.services.auth_service import get_auth_service
+    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    
+    if not auth_service.validate_session(token):
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={
+                "error": "invalid_session",
+                "message": "Session expired or invalid. Please login again at /api/v1/auth/login"
+            },
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
+    # Token is valid, proceed with request
+    return await call_next(request)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler for unhandled errors"""
@@ -393,12 +465,13 @@ async def root(request: Request):
 
 
 # Include API routers
-from app.api.v1 import download, health, status, history, config
+from app.api.v1 import download, health, status, history, config, auth
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(download.router, prefix="/api/v1", tags=["Download"])
 app.include_router(status.router, prefix="/api/v1", tags=["Status"])
 app.include_router(history.router, prefix="/api/v1", tags=["History"])
 app.include_router(config.router, prefix="/api/v1/config", tags=["Configuration"])
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 
 
 def run_server():

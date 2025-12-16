@@ -20,6 +20,11 @@ yt-dlp==2024.11.4          # Video downloader (supports TikTok, Instagram, 1000+
 PyYAML==6.0.2              # YAML configuration file parsing
 
 # ============================================
+# Authentication
+# ============================================
+passlib[bcrypt]==1.7.4     # Secure password hashing with bcrypt
+
+# ============================================
 # HTTP Client
 # ============================================
 httpx==0.27.2              # Modern async HTTP client

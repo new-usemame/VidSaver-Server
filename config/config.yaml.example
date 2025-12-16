@@ -102,6 +102,26 @@ downloader:
   cookie_file: null
 
 # ============================================
+# Authentication Configuration
+# ============================================
+# Universal password protection for all API endpoints.
+# When enabled, users must login with the password to access the API.
+
+auth:
+  # Enable/disable authentication (default: false)
+  # When enabled, all API endpoints (except /health and /auth/*) require login
+  enabled: false
+  
+  # Session timeout in hours (1-720, default: 24)
+  # After this time, users must login again
+  session_timeout_hours: 24
+  
+  # Password hash - DO NOT SET MANUALLY
+  # Use CLI command: python manage.py auth set-password
+  # The password is securely hashed with bcrypt
+  # password_hash: null
+
+# ============================================
 # Security Configuration
 # ============================================
 security:
