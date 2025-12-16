@@ -198,6 +198,8 @@ async def authentication_middleware(request: Request, call_next):
         "/redoc",
         "/openapi.json",
         "/api/v1/health",
+        "/api/v1/config/editor",  # Config editor page (login handled in UI)
+        "/api/v1/config/setup",   # QR setup page
     ]
     
     # Check if path is public or under /api/v1/auth/
