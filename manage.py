@@ -183,14 +183,14 @@ def show_dashboard():
         if running:
             cmd_table.add_row("python manage.py stop", "Stop the server")
             cmd_table.add_row("python manage.py restart", "Restart the server")
+            cmd_table.add_row("python manage.py tray", "Start the system tray app")
             cmd_table.add_row("python manage.py docs", "Open API docs in browser")
             cmd_table.add_row("python manage.py editor", "Open config editor in browser")
             cmd_table.add_row("python manage.py qr", "Open QR setup in browser")
             cmd_table.add_row("python manage.py logs -f", "Follow server logs")
-            cmd_table.add_row("python manage.py console", "Interactive console mode")
         else:
-            cmd_table.add_row("python manage.py start", "Start server + system tray")
-            cmd_table.add_row("python manage.py start --no-tray", "Start server only (headless)")
+            cmd_table.add_row("python manage.py start", "Start the server")
+            cmd_table.add_row("python manage.py tray", "Start the system tray app")
         
         cmd_table.add_row("python manage.py --help", "Show all commands")
         
@@ -200,12 +200,13 @@ def show_dashboard():
         if running:
             print("  python manage.py stop         - Stop the server")
             print("  python manage.py restart      - Restart the server")
+            print("  python manage.py tray         - Start the system tray app")
             print("  python manage.py docs         - Open API docs in browser")
             print("  python manage.py editor       - Open config editor in browser")
             print("  python manage.py logs -f      - Follow server logs")
         else:
-            print("  python manage.py start        - Start server + system tray")
-            print("  python manage.py start --no-tray - Start server only (headless)")
+            print("  python manage.py start        - Start the server")
+            print("  python manage.py tray         - Start the system tray app")
         print("  python manage.py --help       - Show all commands")
     
     print()
@@ -226,13 +227,12 @@ def cli(ctx):
 
 
 @cli.command()
-@click.option('--tray/--no-tray', default=True, help='Start with system tray app (default: yes)')
 @click.option('--wait', default=2, help='Seconds to wait for startup verification')
-def start(tray: bool, wait: int):
+def start(wait: int):
     """Start the video download server.
     
-    By default, also starts the system tray app for easy GUI access.
-    Use --no-tray for headless servers or if you prefer terminal-only control.
+    After starting, access the web interface at the server URL,
+    or run 'python manage.py tray' to start the system tray app.
     """
     # Get configured port
     config = get_server_config()
@@ -270,7 +270,7 @@ def start(tray: bool, wait: int):
         return
     
     print_info("Starting server...")
-    success, pid = start_server(with_tray=tray)
+    success, pid = start_server(with_tray=False)
     
     if success:
         # Wait a moment for server to initialize
@@ -280,11 +280,6 @@ def start(tray: bool, wait: int):
         running, pid = is_server_running()
         if running:
             print_success(f"Server started successfully (PID: {pid})")
-            
-            if tray:
-                tray_running, tray_pid = is_tray_app_running()
-                if tray_running:
-                    print_success(f"Tray app started (PID: {tray_pid})")
             
             # Show full dashboard with URLs and commands
             show_dashboard()

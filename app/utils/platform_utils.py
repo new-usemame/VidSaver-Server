@@ -428,11 +428,12 @@ def start_tray_app() -> Tuple[bool, Optional[int]]:
                 cwd=str(PROJECT_DIR)
             )
         else:
+            # Note: Do NOT use start_new_session=True for GUI apps on macOS
+            # It disconnects from the window server and the tray icon won't appear
             process = subprocess.Popen(
                 [str(python), str(tray_script)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True,
                 cwd=str(PROJECT_DIR)
             )
         
