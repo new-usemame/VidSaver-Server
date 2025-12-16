@@ -93,8 +93,21 @@ def show_dashboard():
     
     port = config.get('server', {}).get('port', 58443)
     ssl = config.get('server', {}).get('ssl', {}).get('enabled', False)
-    protocol = 'https' if ssl else 'http'
     lan_ip = get_lan_ip()
+    
+    # Dual-port mode when SSL is enabled:
+    # - localhost: HTTPS on main port (you can trust your own cert)
+    # - LAN (via IP): HTTP on port-1 (SSL certs don't work with IP addresses)
+    if ssl:
+        local_protocol = 'https'
+        local_port = port
+        lan_protocol = 'http'
+        lan_port = port - 1  # HTTP server runs on port - 1
+    else:
+        local_protocol = 'http'
+        local_port = port
+        lan_protocol = 'http'
+        lan_port = port
     
     print()
     
@@ -135,27 +148,27 @@ def show_dashboard():
             rich_console.print()
             
             rich_console.print("[bold]This Machine (localhost):[/bold]")
-            rich_console.print(f"  [dim]Docs:[/dim]   {protocol}://localhost:{port}/docs")
-            rich_console.print(f"  [dim]Config:[/dim] {protocol}://localhost:{port}/api/v1/config/editor")
-            rich_console.print(f"  [dim]QR:[/dim]     {protocol}://localhost:{port}/api/v1/config/setup")
+            rich_console.print(f"  [dim]Docs:[/dim]   {local_protocol}://localhost:{local_port}/docs")
+            rich_console.print(f"  [dim]Config:[/dim] {local_protocol}://localhost:{local_port}/api/v1/config/editor")
+            rich_console.print(f"  [dim]QR:[/dim]     {local_protocol}://localhost:{local_port}/api/v1/config/setup")
             
             rich_console.print()
             rich_console.print("[bold yellow]LAN (other devices):[/bold yellow]")
-            rich_console.print(f"  [dim]Docs:[/dim]   [yellow]{protocol}://{lan_ip}:{port}/docs[/yellow]")
-            rich_console.print(f"  [dim]Config:[/dim] [yellow]{protocol}://{lan_ip}:{port}/api/v1/config/editor[/yellow]")
-            rich_console.print(f"  [dim]QR:[/dim]     [yellow]{protocol}://{lan_ip}:{port}/api/v1/config/setup[/yellow]")
+            rich_console.print(f"  [dim]Docs:[/dim]   [yellow]{lan_protocol}://{lan_ip}:{lan_port}/docs[/yellow]")
+            rich_console.print(f"  [dim]Config:[/dim] [yellow]{lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/editor[/yellow]")
+            rich_console.print(f"  [dim]QR:[/dim]     [yellow]{lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/setup[/yellow]")
         else:
             print("Access URLs:")
             print()
             print("  This Machine (localhost):")
-            print(f"    API Docs:      {protocol}://localhost:{port}/docs")
-            print(f"    Config Editor: {protocol}://localhost:{port}/api/v1/config/editor")
-            print(f"    QR Setup:      {protocol}://localhost:{port}/api/v1/config/setup")
+            print(f"    API Docs:      {local_protocol}://localhost:{local_port}/docs")
+            print(f"    Config Editor: {local_protocol}://localhost:{local_port}/api/v1/config/editor")
+            print(f"    QR Setup:      {local_protocol}://localhost:{local_port}/api/v1/config/setup")
             print()
             print("  LAN (other devices):")
-            print(f"    API Docs:      {protocol}://{lan_ip}:{port}/docs")
-            print(f"    Config Editor: {protocol}://{lan_ip}:{port}/api/v1/config/editor")
-            print(f"    QR Setup:      {protocol}://{lan_ip}:{port}/api/v1/config/setup")
+            print(f"    API Docs:      {lan_protocol}://{lan_ip}:{lan_port}/docs")
+            print(f"    Config Editor: {lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/editor")
+            print(f"    QR Setup:      {lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/setup")
         
         print()
     

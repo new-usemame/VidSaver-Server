@@ -578,22 +578,37 @@ def get_lan_ip() -> str:
 def get_server_urls(port: int = 58443, ssl_enabled: bool = False) -> Dict[str, str]:
     """Get server URLs for access.
     
+    When SSL is enabled, uses dual-port mode:
+    - localhost: HTTPS on main port (you can trust your own cert)
+    - LAN (via IP): HTTP on port-1 (SSL certs don't work with IP addresses)
+    
     Args:
-        port: Server port
+        port: Server port (HTTPS port when SSL enabled)
         ssl_enabled: Whether HTTPS is enabled
         
     Returns:
         Dict with 'local' and 'lan' URLs
     """
-    protocol = 'https' if ssl_enabled else 'http'
     lan_ip = get_lan_ip()
     
+    if ssl_enabled:
+        # Dual-port mode
+        local_protocol = 'https'
+        local_port = port
+        lan_protocol = 'http'
+        lan_port = port - 1
+    else:
+        local_protocol = 'http'
+        local_port = port
+        lan_protocol = 'http'
+        lan_port = port
+    
     return {
-        'local': f"{protocol}://localhost:{port}",
-        'lan': f"{protocol}://{lan_ip}:{port}",
-        'docs': f"{protocol}://localhost:{port}/docs",
-        'config_editor': f"{protocol}://localhost:{port}/api/v1/config/editor",
-        'qr_setup': f"{protocol}://{lan_ip}:{port}/api/v1/config/setup",
+        'local': f"{local_protocol}://localhost:{local_port}",
+        'lan': f"{lan_protocol}://{lan_ip}:{lan_port}",
+        'docs': f"{local_protocol}://localhost:{local_port}/docs",
+        'config_editor': f"{local_protocol}://localhost:{local_port}/api/v1/config/editor",
+        'qr_setup': f"{lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/setup",
     }
 
 
