@@ -61,7 +61,7 @@ def is_menubar_app_running() -> bool:
         except (ValueError, IOError):
             pass
     
-        return False
+    return False
 
 
 def is_watchdog_running() -> bool:
@@ -79,7 +79,7 @@ def is_watchdog_running() -> bool:
         except (ValueError, IOError):
             pass
     
-        return False
+    return False
 
 
 def launch_watchdog() -> bool:
@@ -173,25 +173,25 @@ def launch_menubar_app_macos() -> bool:
         print("✅ Menu bar app already running")
         return True
     
-        # Launch menu bar app in background
+    # Launch menu bar app in background
     venv_python = get_venv_python()
     
-        try:
-            subprocess.Popen(
-                [str(venv_python), str(menubar_script)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
+    try:
+        subprocess.Popen(
+            [str(venv_python), str(menubar_script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
             cwd=str(PROJECT_DIR)
-            )
-            print("🚀 Launched menu bar app")
-    
-    # Launch watchdog to monitor menu bar app
-    if not is_watchdog_running():
-        if launch_watchdog():
-            print("🐕 Launched menu bar watchdog")
-    else:
-        print("✅ Watchdog already running")
+        )
+        print("🚀 Launched menu bar app")
+        
+        # Launch watchdog to monitor menu bar app
+        if not is_watchdog_running():
+            if launch_watchdog():
+                print("🐕 Launched menu bar watchdog")
+        else:
+            print("✅ Watchdog already running")
         
         return True
         
