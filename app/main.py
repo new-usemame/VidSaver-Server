@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -178,17 +178,213 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Root endpoint
-@app.get("/", tags=["Root"])
-async def root() -> Dict[str, str]:
-    """Root endpoint - welcome message"""
-    return {
-        "message": "Video Download Server",
-        "version": app.version,
-        "docs": "/docs",
-        "health": "/api/v1/health",
-        "config_editor": "/api/v1/config/editor",
-    }
+# Root endpoint - Landing page
+@app.get("/", tags=["Root"], response_class=HTMLResponse)
+async def root(request: Request):
+    """Root endpoint - landing page with quick links"""
+    from app.services.network_service import get_network_service
+    
+    config = get_config()
+    port = config.server.port
+    ssl_enabled = config.server.ssl.enabled
+    
+    # Get network info
+    network = get_network_service()
+    lan_ip = await network.get_lan_ip()
+    
+    # Dual-port logic
+    if ssl_enabled:
+        local_protocol = 'https'
+        local_port = port
+        lan_protocol = 'http'
+        lan_port = port - 1
+    else:
+        local_protocol = 'http'
+        local_port = port
+        lan_protocol = 'http'
+        lan_port = port
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Video Download Server</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                min-height: 100vh;
+                color: #e0e0e0;
+                padding: 40px 20px;
+            }}
+            .container {{
+                max-width: 600px;
+                margin: 0 auto;
+            }}
+            h1 {{
+                font-size: 2rem;
+                margin-bottom: 8px;
+                color: #fff;
+            }}
+            .version {{
+                color: #888;
+                font-size: 0.9rem;
+                margin-bottom: 30px;
+            }}
+            .status {{
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                background: rgba(76, 175, 80, 0.2);
+                border: 1px solid rgba(76, 175, 80, 0.4);
+                padding: 8px 16px;
+                border-radius: 20px;
+                margin-bottom: 30px;
+                font-size: 0.9rem;
+            }}
+            .status-dot {{
+                width: 10px;
+                height: 10px;
+                background: #4caf50;
+                border-radius: 50%;
+                animation: pulse 2s infinite;
+            }}
+            @keyframes pulse {{
+                0%, 100% {{ opacity: 1; }}
+                50% {{ opacity: 0.5; }}
+            }}
+            .section {{
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 20px;
+            }}
+            .section-title {{
+                font-size: 0.85rem;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: #888;
+                margin-bottom: 15px;
+            }}
+            .menu {{
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }}
+            .menu a {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 14px 16px;
+                background: rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                text-decoration: none;
+                color: #fff;
+                transition: all 0.2s;
+            }}
+            .menu a:hover {{
+                background: rgba(255, 255, 255, 0.15);
+                transform: translateX(4px);
+            }}
+            .menu .icon {{
+                font-size: 1.3rem;
+            }}
+            .menu .label {{
+                flex: 1;
+            }}
+            .menu .arrow {{
+                color: #666;
+            }}
+            .urls {{
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }}
+            .url-group {{
+                margin-bottom: 8px;
+            }}
+            .url-group-title {{
+                font-size: 0.8rem;
+                color: #888;
+                margin-bottom: 6px;
+            }}
+            .url {{
+                font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+                font-size: 0.85rem;
+                background: rgba(0, 0, 0, 0.3);
+                padding: 8px 12px;
+                border-radius: 6px;
+                word-break: break-all;
+            }}
+            .url a {{
+                color: #64b5f6;
+                text-decoration: none;
+            }}
+            .url a:hover {{
+                text-decoration: underline;
+            }}
+            .url.lan a {{
+                color: #ffb74d;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📹 Video Download Server</h1>
+            <p class="version">v{app.version}</p>
+            
+            <div class="status">
+                <span class="status-dot"></span>
+                Server Running
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Quick Access</div>
+                <div class="menu">
+                    <a href="/docs">
+                        <span class="icon">📖</span>
+                        <span class="label">API Documentation</span>
+                        <span class="arrow">→</span>
+                    </a>
+                    <a href="/api/v1/config/editor">
+                        <span class="icon">🎛️</span>
+                        <span class="label">Config Editor</span>
+                        <span class="arrow">→</span>
+                    </a>
+                    <a href="/api/v1/config/setup">
+                        <span class="icon">📱</span>
+                        <span class="label">QR Code Setup</span>
+                        <span class="arrow">→</span>
+                    </a>
+                    <a href="/api/v1/health">
+                        <span class="icon">💚</span>
+                        <span class="label">Health Check</span>
+                        <span class="arrow">→</span>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">Access URLs</div>
+                <div class="urls">
+                    <div class="url-group">
+                        <div class="url-group-title">This Machine (localhost)</div>
+                        <div class="url"><a href="{local_protocol}://localhost:{local_port}/docs">{local_protocol}://localhost:{local_port}</a></div>
+                    </div>
+                    <div class="url-group">
+                        <div class="url-group-title">LAN (other devices)</div>
+                        <div class="url lan"><a href="{lan_protocol}://{lan_ip}:{lan_port}">{lan_protocol}://{lan_ip}:{lan_port}</a></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 
 # Include API routers
