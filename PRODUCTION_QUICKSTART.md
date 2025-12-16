@@ -102,7 +102,7 @@ Perform @ProductionSetup.mdc
 
 **Check server is running:**
 ```bash
-curl https://localhost:8443/api/v1/health
+curl https://localhost:58443/api/v1/health
 ```
 
 **Expected response:**
@@ -120,7 +120,7 @@ curl https://localhost:8443/api/v1/health
 
 **Test external access (from iOS device or another computer):**
 ```
-https://videos.yourdomain.com:8443/api/v1/health
+https://videos.yourdomain.com:58443/api/v1/health
 ```
 
 **Check auto-start:**
@@ -176,15 +176,15 @@ ls -lh ~/Downloads/VideoServer/
 ### Test Endpoints
 ```bash
 # Health check
-curl https://videos.yourdomain.com:8443/api/v1/health
+curl https://videos.yourdomain.com:58443/api/v1/health
 
 # Submit test download
-curl -X POST https://videos.yourdomain.com:8443/api/v1/download \
+curl -X POST https://videos.yourdomain.com:58443/api/v1/download \
   -H "Content-Type: application/json" \
   -d '{"url":"https://www.tiktok.com/@test/video/123","client_id":"test"}'
 
 # View history
-curl https://videos.yourdomain.com:8443/api/v1/history?limit=5
+curl https://videos.yourdomain.com:58443/api/v1/history?limit=5
 ```
 
 ---
@@ -198,13 +198,13 @@ dig +short videos.yourdomain.com
 # Should show your public IP
 
 # 2. Test locally first
-curl https://localhost:8443/api/v1/health
+curl https://localhost:58443/api/v1/health
 
 # 3. Check firewall
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 
 # 4. Check router port forwarding
-# Port 8443 must forward to Mac's local IP
+# Port 58443 must forward to Mac's local IP
 ifconfig | grep "inet " | grep -v 127.0.0.1
 # Use this IP in router's port forwarding config
 ```
@@ -229,8 +229,8 @@ tail -f logs/server.log
 tail -f logs/launchd.err.log
 
 # 2. Check port availability
-lsof -i :8443
-# If something is using port 8443, kill it or change port
+lsof -i :58443
+# If something is using port 58443, kill it or change port
 
 # 3. Test manual start
 source venv/bin/activate
@@ -254,7 +254,7 @@ python scripts/init_database.py
 ```swift
 // In your iOS app
 let apiClient = VideoDownloadAPIClient(
-    baseURL: "https://videos.yourdomain.com:8443/api/v1"
+    baseURL: "https://videos.yourdomain.com:58443/api/v1"
 )
 ```
 
@@ -316,7 +316,7 @@ let apiClient = VideoDownloadAPIClient(
 
 ---
 
-**Last Updated:** November 8, 2025
+**Last Updated:** December 16, 2025
 
 **Version:** 1.0.0
 

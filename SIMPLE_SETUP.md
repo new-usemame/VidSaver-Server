@@ -33,17 +33,19 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Initialize Database
+### 2. Copy Config
 
 ```bash
-python scripts/init_database.py
+cp config/config.yaml.example config/config.yaml
 ```
 
 ### 3. Start Server
 
 ```bash
-python server.py
+python manage.py start
 ```
+
+> **Note:** The database initializes automatically on first run.
 
 **That's it!** The server is now running at `http://0.0.0.0:58443`
 
@@ -122,7 +124,7 @@ server:
 
 ```bash
 source venv/bin/activate
-python server.py
+python manage.py start
 ```
 
 ### Check Server is Running
@@ -145,7 +147,9 @@ tail -f logs/server.log
 
 ### Stop Server
 
-Press `Ctrl+C` in the terminal where server is running.
+```bash
+python manage.py stop
+```
 
 ---
 
@@ -314,6 +318,6 @@ If you can:
 
 ---
 
-**Last Updated:** November 8, 2025  
+**Last Updated:** December 16, 2025  
 **Version:** 1.0.0 (HTTP Mode)
 

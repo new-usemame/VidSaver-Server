@@ -26,23 +26,18 @@ nano config/config.yaml
 # Edit: output_directory, domain (if needed)
 ```
 
-## Step 4: Initialize
+## Step 4: Run
 ```bash
-python scripts/init_database.py
-bash scripts/generate_selfsigned.sh
+# Start server
+python manage.py start
+
+# Or run in background without dashboard
+python server.py &
 ```
 
-## Step 5: Run
-```bash
-# Test run
-python server.py
+> **Note:** Database initializes automatically. SSL certificates are optional for local network.
 
-# Or run in background
-nohup python server.py > logs/nohup.log 2>&1 &
-echo $! > server.pid
-```
-
-## Step 6: Test
+## Step 5: Test
 ```bash
 # Get your Mac's IP
 ifconfig | grep "inet " | grep -v 127.0.0.1
