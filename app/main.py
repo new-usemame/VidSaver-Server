@@ -528,12 +528,11 @@ async def root(request: Request):
 
 
 # Include API routers
-from app.api.v1 import download, health, history, config, auth, downloads
+from app.api.v1 import download, health, config, auth, downloads
 from app.api.v1 import status as status_api  # Renamed to avoid conflict with fastapi.status
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(download.router, prefix="/api/v1", tags=["Download"])
 app.include_router(status_api.router, prefix="/api/v1", tags=["Status"])
-app.include_router(history.router, prefix="/api/v1", tags=["History"])
 app.include_router(config.router, prefix="/api/v1/config", tags=["Configuration"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(downloads.router, prefix="/api/v1/downloads", tags=["Downloads Browser"])
