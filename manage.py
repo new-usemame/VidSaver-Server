@@ -85,15 +85,130 @@ if click is None:
     sys.exit(1)
 
 
-@click.group()
+def show_dashboard():
+    """Show server status dashboard when no command is given."""
+    running, pid = is_server_running()
+    info = get_server_info()
+    config = get_server_config()
+    
+    port = config.get('server', {}).get('port', 58443)
+    ssl = config.get('server', {}).get('ssl', {}).get('enabled', False)
+    protocol = 'https' if ssl else 'http'
+    lan_ip = get_lan_ip()
+    
+    print()
+    
+    # Status header with big indicator
+    if running:
+        if HAS_RICH:
+            from rich.panel import Panel
+            from rich.text import Text
+            
+            status_text = Text()
+            status_text.append("🟢 SERVER RUNNING", style="bold green")
+            status_text.append(f"  (PID: {pid})", style="dim")
+            rich_console.print(Panel(status_text, border_style="green"))
+        else:
+            print("=" * 50)
+            print("🟢 SERVER RUNNING  (PID: {})".format(pid))
+            print("=" * 50)
+    else:
+        if HAS_RICH:
+            from rich.panel import Panel
+            from rich.text import Text
+            
+            status_text = Text()
+            status_text.append("🔴 SERVER STOPPED", style="bold red")
+            rich_console.print(Panel(status_text, border_style="red"))
+        else:
+            print("=" * 50)
+            print("🔴 SERVER STOPPED")
+            print("=" * 50)
+    
+    print()
+    
+    # Show URLs if running
+    if running:
+        if HAS_RICH:
+            # Show URLs in a cleaner format
+            rich_console.print("[bold cyan]Access URLs[/bold cyan]")
+            rich_console.print()
+            
+            rich_console.print("[bold]This Machine (localhost):[/bold]")
+            rich_console.print(f"  [dim]Docs:[/dim]   {protocol}://localhost:{port}/docs")
+            rich_console.print(f"  [dim]Config:[/dim] {protocol}://localhost:{port}/api/v1/config/editor")
+            rich_console.print(f"  [dim]QR:[/dim]     {protocol}://localhost:{port}/api/v1/config/setup")
+            
+            rich_console.print()
+            rich_console.print("[bold yellow]LAN (other devices):[/bold yellow]")
+            rich_console.print(f"  [dim]Docs:[/dim]   [yellow]{protocol}://{lan_ip}:{port}/docs[/yellow]")
+            rich_console.print(f"  [dim]Config:[/dim] [yellow]{protocol}://{lan_ip}:{port}/api/v1/config/editor[/yellow]")
+            rich_console.print(f"  [dim]QR:[/dim]     [yellow]{protocol}://{lan_ip}:{port}/api/v1/config/setup[/yellow]")
+        else:
+            print("Access URLs:")
+            print()
+            print("  This Machine (localhost):")
+            print(f"    API Docs:      {protocol}://localhost:{port}/docs")
+            print(f"    Config Editor: {protocol}://localhost:{port}/api/v1/config/editor")
+            print(f"    QR Setup:      {protocol}://localhost:{port}/api/v1/config/setup")
+            print()
+            print("  LAN (other devices):")
+            print(f"    API Docs:      {protocol}://{lan_ip}:{port}/docs")
+            print(f"    Config Editor: {protocol}://{lan_ip}:{port}/api/v1/config/editor")
+            print(f"    QR Setup:      {protocol}://{lan_ip}:{port}/api/v1/config/setup")
+        
+        print()
+    
+    # Quick commands reference
+    if HAS_RICH:
+        from rich.table import Table
+        
+        cmd_table = Table(title="Quick Commands", show_header=False, box=None, padding=(0, 2))
+        cmd_table.add_column("Command", style="cyan")
+        cmd_table.add_column("Description", style="dim")
+        
+        if running:
+            cmd_table.add_row("python manage.py stop", "Stop the server")
+            cmd_table.add_row("python manage.py restart", "Restart the server")
+            cmd_table.add_row("python manage.py docs", "Open API docs in browser")
+            cmd_table.add_row("python manage.py editor", "Open config editor in browser")
+            cmd_table.add_row("python manage.py qr", "Open QR setup in browser")
+            cmd_table.add_row("python manage.py logs -f", "Follow server logs")
+            cmd_table.add_row("python manage.py console", "Interactive console mode")
+        else:
+            cmd_table.add_row("python manage.py start", "Start the server")
+            cmd_table.add_row("python manage.py start --tray", "Start server + system tray")
+        
+        cmd_table.add_row("python manage.py --help", "Show all commands")
+        
+        rich_console.print(cmd_table)
+    else:
+        print("Quick Commands:")
+        if running:
+            print("  python manage.py stop      - Stop the server")
+            print("  python manage.py restart   - Restart the server")
+            print("  python manage.py docs      - Open API docs in browser")
+            print("  python manage.py editor    - Open config editor in browser")
+            print("  python manage.py logs -f   - Follow server logs")
+        else:
+            print("  python manage.py start     - Start the server")
+        print("  python manage.py --help    - Show all commands")
+    
+    print()
+
+
+@click.group(invoke_without_command=True)
 @click.version_option(version="1.0.0", prog_name="Video Download Server")
-def cli():
+@click.pass_context
+def cli(ctx):
     """Video Download Server - Cross-Platform Management CLI
     
     Manage your video download server from the command line.
     Works on Windows, Linux, and macOS.
     """
-    pass
+    # If no command is given, show the dashboard
+    if ctx.invoked_subcommand is None:
+        show_dashboard()
 
 
 @cli.command()
@@ -440,6 +555,54 @@ def docs():
         open_in_browser(docs_url)
     else:
         print_error("Could not determine docs URL")
+
+
+@cli.command()
+def qr():
+    """Open QR Code Setup page in browser.
+    
+    Opens the QR code setup page which allows you to easily
+    configure iOS devices by scanning a QR code.
+    """
+    running, _ = is_server_running()
+    
+    if not running:
+        print_error("Server is not running")
+        print_info("Start it with: python manage.py start")
+        sys.exit(1)
+    
+    info = get_server_info()
+    qr_url = info.get('urls', {}).get('qr_setup', '')
+    
+    if qr_url:
+        print_info(f"Opening: {qr_url}")
+        open_in_browser(qr_url)
+    else:
+        print_error("Could not determine QR setup URL")
+
+
+@cli.command()
+def editor():
+    """Open Config Editor in browser.
+    
+    Opens the web-based configuration editor which provides
+    a user-friendly interface for modifying server settings.
+    """
+    running, _ = is_server_running()
+    
+    if not running:
+        print_error("Server is not running")
+        print_info("Start it with: python manage.py start")
+        sys.exit(1)
+    
+    info = get_server_info()
+    editor_url = info.get('urls', {}).get('config_editor', '')
+    
+    if editor_url:
+        print_info(f"Opening: {editor_url}")
+        open_in_browser(editor_url)
+    else:
+        print_error("Could not determine config editor URL")
 
 
 @cli.command('open-logs')
