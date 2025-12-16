@@ -37,8 +37,8 @@ async def lifespan(app: FastAPI):
     # Log configuration
     logger.info(f"Server: {config.server.host}:{config.server.port}")
     logger.info(f"Database: {config.database.path}")
-    logger.info(f"Downloads: {config.downloads.root_directory}")
-    logger.info(f"Max concurrent: {config.downloads.max_concurrent}")
+    logger.info(f"Downloads folder: {config.downloads.root_directory}")
+    logger.info(f"Max concurrent downloads: {config.downloads.max_concurrent}")
     logger.info(f"Log level: {config.logging.level}")
     
     # Check SSL certificate
@@ -379,6 +379,11 @@ async def root(request: Request):
                         <div class="url lan"><a href="{lan_protocol}://{lan_ip}:{lan_port}">{lan_protocol}://{lan_ip}:{lan_port}</a></div>
                     </div>
                 </div>
+            </div>
+            
+            <div class="section">
+                <div class="section-title">📁 Downloads Folder</div>
+                <div class="url" style="color: #81c784;">{config.downloads.root_directory}</div>
             </div>
         </div>
     </body>

@@ -94,6 +94,7 @@ def show_dashboard():
     port = config.get('server', {}).get('port', 58443)
     ssl = config.get('server', {}).get('ssl', {}).get('enabled', False)
     lan_ip = get_lan_ip()
+    downloads_dir = config.get('downloads', {}).get('root_directory', '~/Downloads/VidSaver')
     
     # Dual-port mode when SSL is enabled:
     # - localhost: HTTPS on main port (you can trust your own cert)
@@ -157,6 +158,10 @@ def show_dashboard():
             rich_console.print(f"  [dim]Docs:[/dim]   [yellow]{lan_protocol}://{lan_ip}:{lan_port}/docs[/yellow]")
             rich_console.print(f"  [dim]Config:[/dim] [yellow]{lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/editor[/yellow]")
             rich_console.print(f"  [dim]QR:[/dim]     [yellow]{lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/setup[/yellow]")
+            
+            rich_console.print()
+            rich_console.print("[bold green]Downloads Folder[/bold green]")
+            rich_console.print(f"  [green]{downloads_dir}[/green]")
         else:
             print("Access URLs:")
             print()
@@ -169,6 +174,9 @@ def show_dashboard():
             print(f"    API Docs:      {lan_protocol}://{lan_ip}:{lan_port}/docs")
             print(f"    Config Editor: {lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/editor")
             print(f"    QR Setup:      {lan_protocol}://{lan_ip}:{lan_port}/api/v1/config/setup")
+            print()
+            print("  Downloads Folder:")
+            print(f"    {downloads_dir}")
         
         print()
     
@@ -824,6 +832,11 @@ def _create_console_layout(info: dict) -> Layout:
         left_content.add_row("Memory:", f"{info['memory_mb']:.1f} MB")
     if running and 'cpu_percent' in info:
         left_content.add_row("CPU:", f"{info['cpu_percent']:.1f}%")
+    
+    # Downloads folder
+    config = get_server_config()
+    downloads_dir = config.get('downloads', {}).get('root_directory', '~/Downloads/VidSaver')
+    left_content.add_row("Downloads:", f"[green]{downloads_dir}[/green]")
     
     left_content.add_row("", "")  # Spacer
     
