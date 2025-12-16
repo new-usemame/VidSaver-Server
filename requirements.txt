@@ -32,9 +32,17 @@ qrcode[pil]==7.4.2         # QR code generation
 Pillow==10.4.0             # Image library for QR codes
 
 # ============================================
-# macOS Menubar App (Mac only)
+# Cross-Platform Management (CLI & System Tray)
 # ============================================
-rumps==0.4.0               # macOS menubar app framework
+click>=8.1.0               # CLI framework
+rich>=13.0.0               # Terminal formatting and live displays
+psutil>=5.9.0              # Cross-platform process management
+pystray>=0.19.0            # Cross-platform system tray (Windows/Linux/macOS)
+
+# ============================================
+# macOS Menubar App (Mac only, legacy)
+# ============================================
+rumps==0.4.0               # macOS menubar app framework (optional, legacy)
 
 # ============================================
 # Testing

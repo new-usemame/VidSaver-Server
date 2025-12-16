@@ -18,9 +18,8 @@ A lightweight, production-ready Python HTTPS server for downloading videos from 
 
 ## 📋 Requirements
 
-- **Python**: 3.9 - 3.13 (recommended: 3.12 or 3.13)
-  - ⚠️ **Python 3.14 is NOT supported** - It's in alpha/beta and many dependencies (pydantic, uvicorn) don't support it yet
-- **Operating System**: macOS, Linux, or Raspberry Pi OS
+- **Python**: 3.9 - 3.14 (recommended: 3.12 or 3.13)
+- **Operating System**: Windows, macOS, Linux, or Raspberry Pi OS
 - **Disk Space**: Variable (depends on downloaded videos)
 - **Network**: Internet connection for downloads
 
@@ -80,12 +79,91 @@ python scripts/init_database.py
 ### 5. Run Server
 
 ```bash
-# Development mode
+# Using cross-platform CLI (recommended)
+python manage.py start
+
+# Or direct mode
 python server.py
 
 # Or with uvicorn directly
 uvicorn app.main:app --host 0.0.0.0 --port 8443 --ssl-keyfile certs/server.key --ssl-certfile certs/server.crt
 ```
+
+## 🖥️ Cross-Platform Management
+
+The server includes cross-platform tools for management that work on **Windows, Linux, and macOS**:
+
+### CLI Commands (`manage.py`)
+
+```bash
+# Server Control
+python manage.py start          # Start server (+ optional tray app)
+python manage.py stop           # Stop server
+python manage.py restart        # Restart server
+python manage.py status         # Show detailed status with health check
+
+# Monitoring
+python manage.py logs           # View last 50 log lines
+python manage.py logs -f        # Follow logs in real-time (tail -f)
+python manage.py info           # Headless-friendly status output
+python manage.py info --json    # JSON output for scripting
+python manage.py console        # Interactive console with live updates
+
+# Utilities
+python manage.py tray           # Start system tray app separately
+python manage.py docs           # Open API docs in browser
+python manage.py config         # Show current configuration
+```
+
+### System Tray App (`tray_app.py`)
+
+A cross-platform system tray application with:
+- Server status indicator (green = running, gray = stopped)
+- Start/Stop/Restart controls
+- Quick access to API docs, Config Editor, QR Setup
+- Log viewer access
+- Works on Windows, Linux, and macOS
+
+```bash
+# Start tray app with server
+python manage.py start --tray
+
+# Or start tray app separately
+python manage.py tray
+python tray_app.py
+```
+
+### Console Mode (Headless)
+
+For servers without a display (headless mode), use the console command:
+
+```bash
+python manage.py console
+```
+
+This displays a live-updating dashboard with:
+- Server status and uptime
+- Access URLs (local and LAN)
+- Download queue statistics
+- Recent downloads
+- Resource usage (memory, CPU)
+
+Press `Ctrl+C` to exit console mode.
+
+### Platform-Specific Notes
+
+**Windows:**
+- Use `python` instead of `python3`
+- Virtual environment: `venv\Scripts\activate`
+- System tray appears in notification area
+
+**Linux:**
+- Requires `libappindicator` for system tray (most distros include this)
+- Install with: `sudo apt install libayatana-appindicator3-1` (Ubuntu/Debian)
+
+**macOS:**
+- Full support out of the box
+- Also includes legacy menu bar app (`menubar_app.py`) using rumps
 
 ## 📁 Project Structure
 
@@ -290,7 +368,12 @@ sudo systemctl status video-server
 ### View Logs
 
 ```bash
-# Tail current log
+# Using manage.py (cross-platform)
+python manage.py logs           # Last 50 lines
+python manage.py logs -n 100    # Last 100 lines
+python manage.py logs -f        # Follow in real-time
+
+# Traditional (Unix)
 tail -f logs/server.log
 
 # View specific log level
@@ -300,11 +383,17 @@ grep "ERROR" logs/server.log
 ### Health Check
 
 ```bash
-# Check server status
+# Using manage.py (recommended)
+python manage.py status
+
+# Using curl
 curl https://localhost:8443/api/v1/health
 
 # Monitor queue
 watch -n 5 'curl -s https://localhost:8443/api/v1/health | jq .queue_size'
+
+# Interactive console (cross-platform)
+python manage.py console
 ```
 
 ### Database Backup
@@ -432,6 +521,7 @@ For issues and questions:
 ---
 
 **Version**: 1.0.0  
-**Last Updated**: November 7, 2025  
-**Status**: Stage 0 Complete - Ready for Stage 1 (Database Setup)
+**Last Updated**: December 16, 2025  
+**Platforms**: Windows, macOS, Linux  
+**Status**: Production Ready with Cross-Platform Support
 
