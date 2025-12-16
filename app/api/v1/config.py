@@ -69,6 +69,29 @@ async def get_setup_page():
             color: white;
             padding: 40px;
             text-align: center;
+            position: relative;
+        }
+        
+        .back-btn {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-50%) translateX(-2px);
         }
         
         .header h1 {
@@ -299,6 +322,7 @@ async def get_setup_page():
 <body>
     <div class="container">
         <div class="header">
+            <a href="/" class="back-btn">← Home</a>
             <h1>📱 Video Server Setup</h1>
             <p>Scan the QR code with your iOS app</p>
         </div>
@@ -567,6 +591,29 @@ async def get_config_editor():
             color: white;
             padding: 30px;
             text-align: center;
+            position: relative;
+        }
+        
+        .back-btn {
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+        
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-50%) translateX(-2px);
         }
         
         .header h1 {
@@ -866,6 +913,7 @@ async def get_config_editor():
 <body>
     <div class="container">
         <div class="header">
+            <a href="/" class="back-btn">← Home</a>
             <h1>📹 Video Server Configuration</h1>
             <p>Edit your server configuration with ease</p>
         </div>
@@ -1940,7 +1988,6 @@ async def update_config(config: Dict[str, Any]):
             logger.info("Triggering server restart due to configuration change...")
             
             try:
-                manage_script = PROJECT_DIR / "manage.sh"
                 venv_python = PROJECT_DIR / "venv" / "bin" / "python"
                 server_script = PROJECT_DIR / "server.py"
                 log_file = PROJECT_DIR / "logs" / "nohup.log"

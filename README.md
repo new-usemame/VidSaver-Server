@@ -67,7 +67,7 @@ cp config/config.yaml.example config/config.yaml
 nano config/config.yaml
 ```
 
-> **Tip (Mac):** You can edit the configuration later using the Config Editor from the menubar app.
+> **Tip:** You can edit the configuration later using the Config Editor (via web interface or tray app).
 
 ### 4. Initialize Database
 
@@ -97,7 +97,7 @@ The server includes cross-platform tools for management that work on **Windows, 
 
 ```bash
 # Server Control
-python manage.py start          # Start server (+ optional tray app)
+python manage.py start          # Start server
 python manage.py stop           # Stop server
 python manage.py restart        # Restart server
 python manage.py status         # Show detailed status with health check
@@ -125,11 +125,10 @@ A cross-platform system tray application with:
 - Works on Windows, Linux, and macOS
 
 ```bash
-# Start tray app with server
-python manage.py start --tray
-
-# Or start tray app separately
+# Start tray app separately (after starting server)
 python manage.py tray
+
+# Or run directly
 python tray_app.py
 ```
 
@@ -163,7 +162,7 @@ Press `Ctrl+C` to exit console mode.
 
 **macOS:**
 - Full support out of the box
-- Also includes legacy menu bar app (`menubar_app.py`) using rumps
+- System tray appears in menu bar area
 
 ## 📁 Project Structure
 

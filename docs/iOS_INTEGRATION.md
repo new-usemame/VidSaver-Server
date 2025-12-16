@@ -255,7 +255,7 @@ Double-click **"Start Video Server.command"** to launch the menu bar app, or:
 
 ```bash
 cd "/path/to/TikTok-Downloader-Server"
-./manage.sh start
+python manage.py start
 ```
 
 The server will be accessible at:

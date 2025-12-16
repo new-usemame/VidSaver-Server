@@ -88,8 +88,8 @@ Whitelist domains for video downloads:
 1. Click **"💾 Save Configuration"**
 2. Wait for success confirmation
 3. **Restart the server** for changes to take effect:
-   - Menu Bar App: Click **"🔄 Restart Server"**
-   - Command Line: `./manage.sh restart`
+   - Tray App: Click **"🔄 Restart Server"**
+   - Command Line: `python manage.py restart`
 
 ### 🎯 Common Tasks
 

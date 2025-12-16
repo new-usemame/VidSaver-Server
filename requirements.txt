@@ -40,11 +40,6 @@ psutil>=5.9.0              # Cross-platform process management
 pystray>=0.19.0            # Cross-platform system tray (Windows/Linux/macOS)
 
 # ============================================
-# macOS Menubar App (Mac only, legacy)
-# ============================================
-rumps==0.4.0               # macOS menubar app framework (optional, legacy)
-
-# ============================================
 # Testing
 # ============================================
 pytest==8.3.3              # Testing framework
