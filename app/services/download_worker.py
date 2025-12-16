@@ -210,16 +210,19 @@ class DownloadWorker:
             genre_dir = self.user_service.get_genre_directory(user.username, genre)
             
             # yt-dlp options
+            # Note: Title is truncated to 80 chars to avoid macOS 255-byte filename limit
+            # (TikTok descriptions can be 500+ chars with recipes, hashtags, etc.)
             ydl_opts = {
                 'outtmpl': os.path.join(
                     str(genre_dir),
-                    f'{safe_id}_%(title)s.%(ext)s'
+                    f'{safe_id}_%(title).80s.%(ext)s'
                 ),
                 'format': 'best',
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
                 'ignoreerrors': False,
+                'restrictfilenames': True,  # Convert special chars to ASCII-safe equivalents
             }
             
             # Add cookie file if configured
