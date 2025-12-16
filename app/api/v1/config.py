@@ -1297,9 +1297,67 @@ sudo chmod 644 /etc/letsencrypt/live/your-domain.com/privkey.pem</pre>
             <!-- Security Tab -->
             <div id="tab-security" class="tab-content">
                 <div class="section">
+                    <div class="section-header">🔐 Password Authentication</div>
+                    <div class="alert alert-info">
+                        <strong>Universal Password Protection</strong><br>
+                        When enabled, all API endpoints require authentication. Users must login with the password to access the server.
+                    </div>
+                    <div class="two-columns">
+                        <div class="form-group">
+                            <div class="label-with-info">
+                                <label>Enable Authentication</label>
+                                <span class="info-icon">i
+                                    <span class="tooltip">When enabled, users must login at /api/v1/auth/login with the password to access protected endpoints. Health and auth endpoints remain public.</span>
+                                </span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="auth-enabled" onchange="updateAuthFieldStates()">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <div class="label-with-info">
+                                <label>Session Timeout (hours)</label>
+                                <span class="info-icon">i
+                                    <span class="tooltip">How long a login session remains valid before users must re-authenticate. Default is 24 hours.</span>
+                                </span>
+                            </div>
+                            <input type="number" class="form-control" id="auth-session-timeout" min="1" max="720" placeholder="24">
+                            <span class="help-text">1-720 hours (max 30 days)</span>
+                        </div>
+                    </div>
+                    
+                    <div id="auth-password-section" style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                            <div>
+                                <strong>Password Status:</strong>
+                                <span id="auth-password-status" style="margin-left: 10px;">Checking...</span>
+                            </div>
+                        </div>
+                        
+                        <div id="auth-password-form" style="display: none;">
+                            <div class="form-group" style="margin-bottom: 10px;">
+                                <label>New Password</label>
+                                <input type="password" class="form-control" id="auth-new-password" placeholder="Enter new password (min 4 characters)">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label>Confirm Password</label>
+                                <input type="password" class="form-control" id="auth-confirm-password" placeholder="Confirm password">
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="setAuthPassword()">💾 Set Password</button>
+                                <button class="btn btn-secondary" onclick="cancelPasswordChange()">Cancel</button>
+                            </div>
+                        </div>
+                        
+                        <button id="auth-change-password-btn" class="btn btn-info" onclick="showPasswordForm()">🔑 Set/Change Password</button>
+                    </div>
+                </div>
+                
+                <div class="section">
                     <div class="section-header">API Keys</div>
                     <div class="alert alert-info">
-                        <strong>⚠️ Security Notice:</strong> Leave empty to disable authentication (not recommended for public access). API keys protect your server from unauthorized use.
+                        <strong>⚠️ Security Notice:</strong> Leave empty to disable API key authentication (not recommended for public access). API keys protect your server from unauthorized use.
                     </div>
                     <div class="form-group">
                         <div class="label-with-info">
@@ -1674,6 +1732,20 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
             document.getElementById('downloader-ua-rotation').checked = data.downloader?.user_agent_rotation || false;
             document.getElementById('downloader-cookies').value = data.downloader?.cookie_file || '';
             
+            // Authentication
+            document.getElementById('auth-enabled').checked = data.auth?.enabled || false;
+            document.getElementById('auth-session-timeout').value = data.auth?.session_timeout_hours || 24;
+            
+            // Update password status display
+            const hasPassword = data.auth?.password_hash ? true : false;
+            const statusEl = document.getElementById('auth-password-status');
+            if (hasPassword) {
+                statusEl.innerHTML = '<span style="color: #28a745;">✓ Password is set</span>';
+            } else {
+                statusEl.innerHTML = '<span style="color: #dc3545;">✗ No password set</span>';
+            }
+            updateAuthFieldStates();
+            
             // Security
             document.getElementById('security-api-keys').value = (data.security?.api_keys || []).join('\\n');
             document.getElementById('security-rate-limit').value = data.security?.rate_limit_per_client || 100;
@@ -1754,6 +1826,10 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
                     user_agent_rotation: document.getElementById('downloader-ua-rotation').checked,
                     timeout: parseInt(document.getElementById('downloader-timeout').value),
                     cookie_file: cookieFile || null
+                },
+                auth: {
+                    enabled: document.getElementById('auth-enabled').checked,
+                    session_timeout_hours: parseInt(document.getElementById('auth-session-timeout').value) || 24
                 },
                 security: {
                     api_keys: apiKeys,
@@ -1903,6 +1979,80 @@ sudo chmod 644 /etc/letsencrypt/live/${domainText}/privkey.pem`;
             }
         }
         
+        // Authentication functions
+        function updateAuthFieldStates() {
+            const authEnabled = document.getElementById('auth-enabled').checked;
+            const sessionTimeoutField = document.getElementById('auth-session-timeout');
+            const passwordSection = document.getElementById('auth-password-section');
+            
+            // Always allow setting password, but show warning if enabling without password
+            if (authEnabled) {
+                const statusEl = document.getElementById('auth-password-status');
+                if (statusEl && statusEl.textContent.includes('No password')) {
+                    showAlert('Warning: Authentication is enabled but no password is set. Set a password below.', 'warning');
+                }
+            }
+        }
+        
+        function showPasswordForm() {
+            document.getElementById('auth-password-form').style.display = 'block';
+            document.getElementById('auth-change-password-btn').style.display = 'none';
+            document.getElementById('auth-new-password').focus();
+        }
+        
+        function cancelPasswordChange() {
+            document.getElementById('auth-password-form').style.display = 'none';
+            document.getElementById('auth-change-password-btn').style.display = 'inline-block';
+            document.getElementById('auth-new-password').value = '';
+            document.getElementById('auth-confirm-password').value = '';
+        }
+        
+        async function setAuthPassword() {
+            const newPassword = document.getElementById('auth-new-password').value;
+            const confirmPassword = document.getElementById('auth-confirm-password').value;
+            
+            // Validation
+            if (!newPassword) {
+                showAlert('Please enter a password', 'error');
+                return;
+            }
+            
+            if (newPassword.length < 4) {
+                showAlert('Password must be at least 4 characters', 'error');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                showAlert('Passwords do not match', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/v1/config/set-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: newPassword })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to set password');
+                }
+                
+                // Update status display
+                document.getElementById('auth-password-status').innerHTML = '<span style="color: #28a745;">✓ Password is set</span>';
+                
+                // Hide form
+                cancelPasswordChange();
+                
+                showAlert('Password set successfully! Remember to save configuration.', 'success');
+            } catch (error) {
+                showAlert('Error setting password: ' + error.message, 'error');
+            }
+        }
+        
         // Handle directory selection
         document.addEventListener('DOMContentLoaded', function() {
             const directoryInput = document.getElementById('directory-input');
@@ -2035,6 +2185,22 @@ async def update_config(config: Dict[str, Any]):
         except yaml.YAMLError as e:
             raise HTTPException(status_code=400, detail=f"Invalid YAML structure: {str(e)}")
         
+        # Preserve password_hash from existing config if not in the update
+        # (the frontend doesn't send password_hash for security reasons)
+        if CONFIG_PATH.exists():
+            try:
+                with open(CONFIG_PATH, 'r') as f:
+                    existing_config = yaml.safe_load(f) or {}
+                
+                existing_password_hash = existing_config.get('auth', {}).get('password_hash')
+                if existing_password_hash:
+                    if 'auth' not in config:
+                        config['auth'] = {}
+                    if 'password_hash' not in config.get('auth', {}):
+                        config['auth']['password_hash'] = existing_password_hash
+            except Exception as e:
+                logger.warning(f"Could not preserve password_hash: {e}")
+        
         # Create backup of current config
         if CONFIG_PATH.exists():
             from datetime import datetime
@@ -2144,6 +2310,54 @@ async def generate_api_key():
     except Exception as e:
         logger.error(f"Error generating API key: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate API key: {str(e)}")
+
+
+@router.post("/set-password")
+async def set_auth_password(request_data: Dict[str, Any]):
+    """Set the universal authentication password
+    
+    Hashes the provided password with bcrypt and saves it to the config file.
+    """
+    try:
+        password = request_data.get("password")
+        
+        if not password:
+            raise HTTPException(status_code=400, detail="Password is required")
+        
+        if len(password) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+        
+        # Hash the password
+        from app.services.auth_service import AuthService
+        password_hash = AuthService.hash_password(password)
+        
+        # Load current config
+        if not CONFIG_PATH.exists():
+            raise HTTPException(status_code=404, detail="Config file not found")
+        
+        with open(CONFIG_PATH, 'r') as f:
+            config_data = yaml.safe_load(f) or {}
+        
+        # Ensure auth section exists
+        if 'auth' not in config_data:
+            config_data['auth'] = {}
+        
+        # Set the password hash
+        config_data['auth']['password_hash'] = password_hash
+        
+        # Save config
+        with open(CONFIG_PATH, 'w') as f:
+            yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+        
+        logger.info("Authentication password updated via config editor")
+        
+        return {"success": True, "message": "Password set successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting password: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set password: {str(e)}")
 
 
 @router.get("/connection")
