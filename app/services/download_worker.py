@@ -8,6 +8,7 @@ import logging
 import time
 import threading
 import os
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -21,6 +22,11 @@ from app.models.database import Download, DownloadStatus, User
 from app.core.config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+def _is_ffmpeg_available() -> bool:
+    """Check if ffmpeg is available in PATH"""
+    return shutil.which('ffmpeg') is not None
 
 
 class DownloadWorker:
@@ -212,16 +218,24 @@ class DownloadWorker:
             # yt-dlp options
             # Note: Title is truncated to 80 chars to avoid macOS 255-byte filename limit
             # (TikTok descriptions can be 500+ chars with recipes, hashtags, etc.)
+            
+            # Choose format based on ffmpeg availability
+            # - With ffmpeg: can merge separate video+audio streams (better quality for YouTube)
+            # - Without ffmpeg: must use pre-merged streams only
+            if _is_ffmpeg_available():
+                format_selector = 'bestvideo+bestaudio/best'
+                logger.debug("ffmpeg available - using merge format selector")
+            else:
+                format_selector = 'best'
+                logger.info("ffmpeg not available - using single-stream format (install ffmpeg for better YouTube quality)")
+            
             ydl_opts = {
                 'outtmpl': os.path.join(
                     str(genre_dir),
                     f'{safe_id}_%(title).80s.%(ext)s'
                 ),
-                # Format selector with fallbacks for better compatibility:
-                # 1. Try best video+audio merge (most YouTube videos)
-                # 2. Fall back to best single stream (TikTok, Instagram, etc.)
-                'format': 'bestvideo+bestaudio/best',
-                'merge_output_format': 'mp4',  # Ensure merged output is MP4
+                'format': format_selector,
+                'merge_output_format': 'mp4',  # Ensure merged output is MP4 (when ffmpeg available)
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
