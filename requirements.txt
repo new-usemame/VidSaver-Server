@@ -13,6 +13,7 @@ pydantic-settings==2.6.0   # Settings management with env var support
 # Video Downloader
 # ============================================
 yt-dlp>=2025.1.1           # Video downloader - requires 2025+ for YouTube compatibility fixes
+imageio-ffmpeg>=0.5.1      # Bundled ffmpeg for merging YouTube video+audio streams
 
 # ============================================
 # Configuration Management

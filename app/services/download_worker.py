@@ -10,7 +10,7 @@ import threading
 import os
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
 import yt_dlp
@@ -24,9 +24,32 @@ from app.core.config import get_config
 logger = logging.getLogger(__name__)
 
 
-def _is_ffmpeg_available() -> bool:
-    """Check if ffmpeg is available in PATH"""
-    return shutil.which('ffmpeg') is not None
+def _get_ffmpeg_path() -> Tuple[bool, Optional[str]]:
+    """Get ffmpeg path, checking system PATH first, then imageio-ffmpeg bundle.
+    
+    Returns:
+        Tuple of (is_available, path_or_none)
+        - If system ffmpeg found: (True, None) - yt-dlp will find it automatically
+        - If imageio-ffmpeg found: (True, "/path/to/ffmpeg") - need to tell yt-dlp
+        - If neither found: (False, None)
+    """
+    # First check system PATH
+    if shutil.which('ffmpeg') is not None:
+        return True, None
+    
+    # Try imageio-ffmpeg bundled binary
+    try:
+        import imageio_ffmpeg
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg_path and os.path.exists(ffmpeg_path):
+            logger.info(f"Using bundled ffmpeg from imageio-ffmpeg: {ffmpeg_path}")
+            return True, ffmpeg_path
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"imageio-ffmpeg check failed: {e}")
+    
+    return False, None
 
 
 class DownloadWorker:
@@ -219,10 +242,13 @@ class DownloadWorker:
             # Note: Title is truncated to 80 chars to avoid macOS 255-byte filename limit
             # (TikTok descriptions can be 500+ chars with recipes, hashtags, etc.)
             
+            # Check ffmpeg availability (system PATH or imageio-ffmpeg bundle)
+            ffmpeg_available, ffmpeg_path = _get_ffmpeg_path()
+            
             # Choose format based on ffmpeg availability
             # - With ffmpeg: can merge separate video+audio streams (better quality for YouTube)
             # - Without ffmpeg: must use pre-merged streams only
-            if _is_ffmpeg_available():
+            if ffmpeg_available:
                 format_selector = 'bestvideo+bestaudio/best'
                 logger.debug("ffmpeg available - using merge format selector")
             else:
@@ -242,6 +268,10 @@ class DownloadWorker:
                 'ignoreerrors': False,
                 'restrictfilenames': True,  # Convert special chars to ASCII-safe equivalents
             }
+            
+            # Tell yt-dlp where ffmpeg is if using bundled version
+            if ffmpeg_path:
+                ydl_opts['ffmpeg_location'] = ffmpeg_path
             
             # Add cookie file if configured
             config = get_config()
