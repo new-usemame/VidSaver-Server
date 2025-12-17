@@ -12,7 +12,7 @@ pydantic-settings==2.6.0   # Settings management with env var support
 # ============================================
 # Video Downloader
 # ============================================
-yt-dlp==2024.11.4          # Video downloader (supports TikTok, Instagram, 1000+ sites)
+yt-dlp>=2024.11.4          # Video downloader - use >= to get latest YouTube/TikTok fixes
 
 # ============================================
 # Configuration Management
