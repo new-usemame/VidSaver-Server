@@ -217,7 +217,11 @@ class DownloadWorker:
                     str(genre_dir),
                     f'{safe_id}_%(title).80s.%(ext)s'
                 ),
-                'format': 'best',
+                # Format selector with fallbacks for better compatibility:
+                # 1. Try best video+audio merge (most YouTube videos)
+                # 2. Fall back to best single stream (TikTok, Instagram, etc.)
+                'format': 'bestvideo+bestaudio/best',
+                'merge_output_format': 'mp4',  # Ensure merged output is MP4
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
