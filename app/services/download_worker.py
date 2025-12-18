@@ -278,6 +278,12 @@ class DownloadWorker:
                 'extract_flat': False,
                 'ignoreerrors': False,
                 'restrictfilenames': True,  # Convert special chars to ASCII-safe equivalents
+                # Metadata: Save JSON sidecar file with all video metadata
+                # Creates video.mp4.info.json alongside video.mp4
+                # Contains: title, description, uploader, views, likes, comments, tags, etc.
+                'writeinfojson': True,
+                # Thumbnail: Save video thumbnail image
+                'writethumbnail': True,
             }
             
             # Tell yt-dlp where ffmpeg is if using bundled version
