@@ -2,14 +2,17 @@
 
 GET /api/v1/downloads/browse - HTML page for browsing downloads
 GET /api/v1/downloads/structure - Returns folder tree JSON
-GET /api/v1/downloads/videos - Returns videos list with filters
-GET /api/v1/downloads/stream/{path} - Stream/download a file
+GET /api/v1/downloads/videos - Returns videos list with filters and metadata paths
+GET /api/v1/downloads/stream/{path} - Stream/download a file (video, thumbnail, etc.)
+GET /api/v1/downloads/metadata/{path} - Get parsed metadata JSON for a video
+GET /api/v1/downloads/queue - Get download queue status
 
 SECURITY: This module ALWAYS requires authentication, even if global auth is disabled.
 """
 
 import logging
 import os
+import json
 import mimetypes
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -38,6 +41,8 @@ ALLOWED_EXTENSIONS = {
     '.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v', '.m4a',  # Video
     '.mp3', '.wav', '.ogg', '.flac',  # Audio
     '.pdf', '.epub', '.mobi',  # Documents
+    '.json',  # Metadata sidecar files
+    '.webp', '.jpg', '.jpeg', '.png',  # Thumbnails
 }
 
 
@@ -159,6 +164,49 @@ def format_timestamp(timestamp: int) -> str:
         return f"{days} day{'s' if days != 1 else ''} ago"
     else:
         return datetime.fromtimestamp(timestamp).strftime("%b %d, %Y")
+
+
+def read_video_metadata(video_path: Path) -> Optional[Dict[str, Any]]:
+    """Read metadata from sidecar JSON file.
+    
+    Args:
+        video_path: Path to the video file
+        
+    Returns:
+        Parsed metadata dict, or None if not found/invalid
+    """
+    info_path = video_path.parent / (video_path.name + '.info.json')
+    if not info_path.exists():
+        return None
+    try:
+        with open(info_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Error reading metadata for {video_path}: {e}")
+        return None
+
+
+def get_thumbnail_path(video_path: Path) -> Optional[Path]:
+    """Find thumbnail file for a video.
+    
+    Checks for common thumbnail extensions in order of preference.
+    
+    Args:
+        video_path: Path to the video file
+        
+    Returns:
+        Path to thumbnail if found, None otherwise
+    """
+    # yt-dlp saves thumbnails with same base name but different extension
+    base = video_path.stem
+    parent = video_path.parent
+    
+    # Check common thumbnail extensions
+    for ext in ['.webp', '.jpg', '.jpeg', '.png']:
+        thumb_path = parent / f"{base}{ext}"
+        if thumb_path.exists():
+            return thumb_path
+    return None
 
 
 # =============================================================================
@@ -317,10 +365,20 @@ async def get_videos_list(
         for genre_dir in genre_dirs:
             genre_name = genre_dir.name
             
+            # Extensions that are primary content (not metadata/thumbnails)
+            primary_extensions = {
+                '.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v', '.m4a',  # Video
+                '.mp3', '.wav', '.ogg', '.flac',  # Audio
+                '.pdf', '.epub', '.mobi',  # Documents
+            }
+            
             for file_path in genre_dir.iterdir():
                 if not file_path.is_file():
                     continue
-                if not is_allowed_extension(file_path.name):
+                
+                # Only include primary content files (skip .info.json and thumbnails)
+                ext = file_path.suffix.lower()
+                if ext not in primary_extensions:
                     continue
                 
                 # Apply search filter
@@ -333,6 +391,14 @@ async def get_videos_list(
                     # Build relative path for streaming
                     rel_path = f"{user_name}/{genre_name}/{file_path.name}"
                     
+                    # Check for metadata sidecar file
+                    info_json_path = file_path.parent / (file_path.name + '.info.json')
+                    has_metadata = info_json_path.exists()
+                    
+                    # Check for thumbnail
+                    thumb = get_thumbnail_path(file_path)
+                    thumbnail_path = f"{user_name}/{genre_name}/{thumb.name}" if thumb else None
+                    
                     videos.append({
                         "filename": file_path.name,
                         "username": user_name,
@@ -342,7 +408,10 @@ async def get_videos_list(
                         "size_formatted": format_file_size(stat.st_size),
                         "modified_at": int(stat.st_mtime),
                         "modified_formatted": format_timestamp(int(stat.st_mtime)),
-                        "extension": file_path.suffix.lower()
+                        "extension": ext,
+                        "has_metadata": has_metadata,
+                        "metadata_path": f"{rel_path}.info.json" if has_metadata else None,
+                        "thumbnail_path": thumbnail_path,
                     })
                 except OSError as e:
                     logger.warning(f"Error reading file {file_path}: {e}")
@@ -438,6 +507,106 @@ async def stream_file(request: Request, file_path: str):
         media_type=content_type,
         filename=full_path.name
     )
+
+
+@router.get(
+    "/metadata/{file_path:path}",
+    summary="Get Video Metadata",
+    description="Returns parsed metadata JSON for a video file from its sidecar .info.json file.",
+    responses={
+        200: {"description": "Metadata retrieved successfully"},
+        401: {"description": "Authentication required"},
+        404: {"description": "Video or metadata not found"}
+    }
+)
+async def get_video_metadata(request: Request, file_path: str):
+    """Get metadata for a video file.
+    
+    Reads the .info.json sidecar file and returns parsed metadata.
+    Returns curated fields useful for display, not the raw yt-dlp dump.
+    """
+    await require_auth(request)
+    
+    config = get_config()
+    root_dir = Path(config.downloads.root_directory)
+    
+    # Decode URL-encoded path
+    file_path = unquote(file_path)
+    
+    # Security: Validate path is within allowed directory
+    if not is_safe_path(file_path, root_dir):
+        logger.warning(f"Path traversal attempt blocked: {file_path}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Invalid path"
+        )
+    
+    # Build full path to video file
+    video_path = (root_dir / file_path).resolve()
+    
+    # Check video file exists
+    if not video_path.exists() or not video_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video file not found"
+        )
+    
+    # Read metadata from sidecar file
+    metadata = read_video_metadata(video_path)
+    
+    if metadata is None:
+        # Return minimal metadata from file info
+        try:
+            stat = video_path.stat()
+            return {
+                "has_full_metadata": False,
+                "filename": video_path.name,
+                "file_size": stat.st_size,
+                "modified_at": int(stat.st_mtime),
+            }
+        except OSError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Could not read file information"
+            )
+    
+    # Return curated metadata fields for display
+    # These are the most useful fields across platforms (YouTube, TikTok, Instagram, etc.)
+    return {
+        "has_full_metadata": True,
+        # Basic info
+        "id": metadata.get("id"),
+        "title": metadata.get("title") or metadata.get("fulltitle"),
+        "description": metadata.get("description"),
+        "webpage_url": metadata.get("webpage_url") or metadata.get("original_url"),
+        # Creator info
+        "uploader": metadata.get("uploader") or metadata.get("creator") or metadata.get("channel"),
+        "uploader_id": metadata.get("uploader_id") or metadata.get("channel_id"),
+        "uploader_url": metadata.get("uploader_url") or metadata.get("channel_url"),
+        # Timestamps
+        "upload_date": metadata.get("upload_date"),
+        "timestamp": metadata.get("timestamp"),
+        # Duration
+        "duration": metadata.get("duration"),
+        "duration_string": metadata.get("duration_string"),
+        # Engagement metrics
+        "view_count": metadata.get("view_count"),
+        "like_count": metadata.get("like_count"),
+        "comment_count": metadata.get("comment_count"),
+        "repost_count": metadata.get("repost_count"),
+        # Categorization
+        "categories": metadata.get("categories"),
+        "tags": metadata.get("tags"),
+        # Platform info
+        "extractor": metadata.get("extractor"),
+        "extractor_key": metadata.get("extractor_key"),
+        # Thumbnail
+        "thumbnail": metadata.get("thumbnail"),
+        # Audio info (for music)
+        "track": metadata.get("track"),
+        "artist": metadata.get("artist"),
+        "album": metadata.get("album"),
+    }
 
 
 @router.get(
@@ -960,6 +1129,18 @@ def _get_browse_html() -> str:
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 3rem;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .video-thumb-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .video-thumb-icon {
             font-size: 3rem;
         }
         
@@ -1741,9 +1922,17 @@ def _get_browse_html() -> str:
             let html = '';
             for (const video of data.videos) {
                 const icon = thumbIcons[video.extension] || '📄';
+                
+                // Use actual thumbnail if available, otherwise fall back to emoji icon
+                const thumbHtml = video.thumbnail_path
+                    ? `<img src="/api/v1/downloads/stream/${encodeURIComponent(video.thumbnail_path)}" 
+                           alt="" class="video-thumb-img" loading="lazy" 
+                           onerror="this.parentElement.innerHTML='<div class=\\'video-thumb-icon\\'>${icon}</div>'">`
+                    : `<div class="video-thumb-icon">${icon}</div>`;
+                
                 html += `
                     <div class="video-card" onclick="openVideo(${JSON.stringify(video).replace(/"/g, '&quot;')})">
-                        <div class="video-thumb">${icon}</div>
+                        <div class="video-thumb">${thumbHtml}</div>
                         <div class="video-info">
                             <div class="video-title" title="${escapeHtml(video.filename)}">${escapeHtml(video.filename)}</div>
                             <div class="video-meta">
@@ -1825,7 +2014,7 @@ def _get_browse_html() -> str:
         }
         
         // Modal
-        function openVideo(video) {
+        async function openVideo(video) {
             const modal = document.getElementById('modal-overlay');
             const player = document.getElementById('video-player');
             const title = document.getElementById('modal-title');
@@ -1846,7 +2035,32 @@ def _get_browse_html() -> str:
                 player.src = '';
             }
             
-            details.innerHTML = `
+            downloadBtn.href = streamUrl;
+            downloadBtn.download = video.filename;
+            
+            // Show basic info first, then load rich metadata
+            renderBasicDetails(video, details);
+            modal.classList.add('active');
+            
+            // Fetch rich metadata if available
+            if (video.has_metadata) {
+                try {
+                    const response = await fetch(`/api/v1/downloads/metadata/${encodeURIComponent(video.path)}`);
+                    if (response.ok) {
+                        const metadata = await response.json();
+                        if (metadata.has_full_metadata) {
+                            renderRichDetails(video, metadata, details);
+                        }
+                    }
+                } catch (e) {
+                    console.log('Could not load metadata:', e);
+                    // Keep basic details
+                }
+            }
+        }
+        
+        function renderBasicDetails(video, container) {
+            container.innerHTML = `
                 <div class="detail-item">
                     <div class="detail-label">Filename</div>
                     <div class="detail-value">${escapeHtml(video.filename)}</div>
@@ -1868,11 +2082,127 @@ def _get_browse_html() -> str:
                     <div class="detail-value">${video.modified_formatted}</div>
                 </div>
             `;
+        }
+        
+        function renderRichDetails(video, meta, container) {
+            // Format duration
+            let durationStr = '';
+            if (meta.duration) {
+                const mins = Math.floor(meta.duration / 60);
+                const secs = Math.floor(meta.duration % 60);
+                durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+            }
             
-            downloadBtn.href = streamUrl;
-            downloadBtn.download = video.filename;
+            // Format numbers
+            const formatNum = (n) => n ? n.toLocaleString() : null;
             
-            modal.classList.add('active');
+            // Format upload date
+            let uploadDateStr = '';
+            if (meta.upload_date) {
+                const d = meta.upload_date;
+                uploadDateStr = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+            }
+            
+            let html = '';
+            
+            // Title (full, not truncated)
+            if (meta.title) {
+                html += `<div class="detail-item" style="grid-column: 1 / -1;">
+                    <div class="detail-label">Title</div>
+                    <div class="detail-value">${escapeHtml(meta.title)}</div>
+                </div>`;
+            }
+            
+            // Uploader/Channel
+            if (meta.uploader) {
+                html += `<div class="detail-item">
+                    <div class="detail-label">Uploader</div>
+                    <div class="detail-value">${escapeHtml(meta.uploader)}</div>
+                </div>`;
+            }
+            
+            // Duration
+            if (durationStr) {
+                html += `<div class="detail-item">
+                    <div class="detail-label">Duration</div>
+                    <div class="detail-value">${durationStr}</div>
+                </div>`;
+            }
+            
+            // Upload date
+            if (uploadDateStr) {
+                html += `<div class="detail-item">
+                    <div class="detail-label">Upload Date</div>
+                    <div class="detail-value">${uploadDateStr}</div>
+                </div>`;
+            }
+            
+            // View count
+            if (meta.view_count) {
+                html += `<div class="detail-item">
+                    <div class="detail-label">Views</div>
+                    <div class="detail-value">${formatNum(meta.view_count)}</div>
+                </div>`;
+            }
+            
+            // Like count
+            if (meta.like_count) {
+                html += `<div class="detail-item">
+                    <div class="detail-label">Likes</div>
+                    <div class="detail-value">${formatNum(meta.like_count)}</div>
+                </div>`;
+            }
+            
+            // Comment count
+            if (meta.comment_count) {
+                html += `<div class="detail-item">
+                    <div class="detail-label">Comments</div>
+                    <div class="detail-value">${formatNum(meta.comment_count)}</div>
+                </div>`;
+            }
+            
+            // File info
+            html += `<div class="detail-item">
+                <div class="detail-label">File Size</div>
+                <div class="detail-value">${video.size_formatted}</div>
+            </div>`;
+            
+            html += `<div class="detail-item">
+                <div class="detail-label">Platform</div>
+                <div class="detail-value">${escapeHtml(meta.extractor || video.genre)}</div>
+            </div>`;
+            
+            // Description (if present, show truncated with expand)
+            if (meta.description) {
+                const desc = meta.description.length > 300 
+                    ? meta.description.slice(0, 300) + '...' 
+                    : meta.description;
+                html += `<div class="detail-item" style="grid-column: 1 / -1;">
+                    <div class="detail-label">Description</div>
+                    <div class="detail-value" style="white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${escapeHtml(desc)}</div>
+                </div>`;
+            }
+            
+            // Tags
+            if (meta.tags && meta.tags.length > 0) {
+                const tagsHtml = meta.tags.slice(0, 10).map(t => 
+                    `<span style="background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; margin: 2px; display: inline-block; font-size: 0.8rem;">${escapeHtml(t)}</span>`
+                ).join('');
+                html += `<div class="detail-item" style="grid-column: 1 / -1;">
+                    <div class="detail-label">Tags</div>
+                    <div class="detail-value">${tagsHtml}</div>
+                </div>`;
+            }
+            
+            // Original URL
+            if (meta.webpage_url) {
+                html += `<div class="detail-item" style="grid-column: 1 / -1;">
+                    <div class="detail-label">Original URL</div>
+                    <div class="detail-value"><a href="${escapeHtml(meta.webpage_url)}" target="_blank" style="color: #64b5f6; word-break: break-all;">${escapeHtml(meta.webpage_url)}</a></div>
+                </div>`;
+            }
+            
+            container.innerHTML = html;
         }
         
         function closeModal() {
