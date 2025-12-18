@@ -248,12 +248,23 @@ class DownloadWorker:
             # Choose format based on ffmpeg availability
             # - With ffmpeg: can merge separate video+audio streams (better quality for YouTube)
             # - Without ffmpeg: must use pre-merged streams only
+            # Codec preference: H.264 (avc1) > H.265 (hvc1) > any (including AV1)
+            # H.264/H.265 are universally playable; AV1 requires special players like VLC
             if ffmpeg_available:
-                format_selector = 'bestvideo+bestaudio/best'
-                logger.debug("ffmpeg available - using merge format selector")
+                format_selector = (
+                    'bestvideo[vcodec^=avc1]+bestaudio/'  # Prefer H.264
+                    'bestvideo[vcodec^=hvc1]+bestaudio/'  # Then H.265
+                    'bestvideo+bestaudio/'                 # Then any codec (AV1, VP9, etc.)
+                    'best'                                 # Finally single stream
+                )
+                logger.debug("ffmpeg available - using merge format selector with H.264/H.265 preference")
             else:
-                format_selector = 'best'
-                logger.info("ffmpeg not available - using single-stream format (install ffmpeg for better YouTube quality)")
+                format_selector = (
+                    'best[vcodec^=avc1]/'  # Prefer H.264
+                    'best[vcodec^=hvc1]/'  # Then H.265  
+                    'best'                  # Then any
+                )
+                logger.info("ffmpeg not available - using single-stream format")
             
             ydl_opts = {
                 'outtmpl': os.path.join(
