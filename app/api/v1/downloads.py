@@ -570,42 +570,123 @@ async def get_video_metadata(request: Request, file_path: str):
                 detail="Could not read file information"
             )
     
-    # Return curated metadata fields for display
-    # These are the most useful fields across platforms (YouTube, TikTok, Instagram, etc.)
+    # Build comprehensive metadata response organized by categories
+    # This structure is designed to be extensible for new platforms
+    # The UI will iterate through categories and display available fields
+    
+    def get_first(*keys):
+        """Get first non-None value from multiple possible keys"""
+        for key in keys:
+            val = metadata.get(key)
+            if val is not None:
+                return val
+        return None
+    
     return {
         "has_full_metadata": True,
-        # Basic info
-        "id": metadata.get("id"),
-        "title": metadata.get("title") or metadata.get("fulltitle"),
-        "description": metadata.get("description"),
-        "webpage_url": metadata.get("webpage_url") or metadata.get("original_url"),
-        # Creator info
-        "uploader": metadata.get("uploader") or metadata.get("creator") or metadata.get("channel"),
-        "uploader_id": metadata.get("uploader_id") or metadata.get("channel_id"),
-        "uploader_url": metadata.get("uploader_url") or metadata.get("channel_url"),
-        # Timestamps
-        "upload_date": metadata.get("upload_date"),
-        "timestamp": metadata.get("timestamp"),
-        # Duration
-        "duration": metadata.get("duration"),
-        "duration_string": metadata.get("duration_string"),
+        
+        # Basic content information
+        "basic": {
+            "id": metadata.get("id"),
+            "title": get_first("title", "fulltitle", "alt_title"),
+            "description": metadata.get("description"),
+            "webpage_url": get_first("webpage_url", "original_url", "url"),
+            "duration": metadata.get("duration"),
+            "duration_string": metadata.get("duration_string"),
+            "upload_date": metadata.get("upload_date"),
+            "timestamp": metadata.get("timestamp"),
+            "release_date": metadata.get("release_date"),
+            "release_year": metadata.get("release_year"),
+        },
+        
+        # Creator/channel information
+        "creator": {
+            "uploader": get_first("uploader", "creator", "channel", "artist"),
+            "uploader_id": get_first("uploader_id", "channel_id", "creator_id"),
+            "uploader_url": get_first("uploader_url", "channel_url"),
+            "channel": metadata.get("channel"),
+            "channel_id": metadata.get("channel_id"),
+            "channel_url": metadata.get("channel_url"),
+            "channel_follower_count": metadata.get("channel_follower_count"),
+        },
+        
         # Engagement metrics
-        "view_count": metadata.get("view_count"),
-        "like_count": metadata.get("like_count"),
-        "comment_count": metadata.get("comment_count"),
-        "repost_count": metadata.get("repost_count"),
-        # Categorization
-        "categories": metadata.get("categories"),
-        "tags": metadata.get("tags"),
-        # Platform info
-        "extractor": metadata.get("extractor"),
-        "extractor_key": metadata.get("extractor_key"),
+        "engagement": {
+            "view_count": metadata.get("view_count"),
+            "like_count": metadata.get("like_count"),
+            "dislike_count": metadata.get("dislike_count"),
+            "comment_count": metadata.get("comment_count"),
+            "repost_count": metadata.get("repost_count"),
+            "average_rating": metadata.get("average_rating"),
+            "age_limit": metadata.get("age_limit"),
+        },
+        
+        # Categorization and tags
+        "categorization": {
+            "categories": metadata.get("categories"),
+            "tags": metadata.get("tags"),
+            "genres": metadata.get("genres"),
+            "playlist": metadata.get("playlist"),
+            "playlist_index": metadata.get("playlist_index"),
+            "chapter": metadata.get("chapter"),
+            "chapter_number": metadata.get("chapter_number"),
+        },
+        
+        # Audio/music specific (TikTok sounds, music videos, etc.)
+        "audio": {
+            "track": metadata.get("track"),
+            "artist": metadata.get("artist"),
+            "album": metadata.get("album"),
+            "album_artist": metadata.get("album_artist"),
+            "disc_number": metadata.get("disc_number"),
+            "track_number": metadata.get("track_number"),
+            "composer": metadata.get("composer"),
+            "genre": metadata.get("genre"),
+        },
+        
+        # Technical/platform info
+        "technical": {
+            "extractor": metadata.get("extractor"),
+            "extractor_key": metadata.get("extractor_key"),
+            "format": metadata.get("format"),
+            "format_id": metadata.get("format_id"),
+            "resolution": metadata.get("resolution"),
+            "width": metadata.get("width"),
+            "height": metadata.get("height"),
+            "fps": metadata.get("fps"),
+            "vcodec": metadata.get("vcodec"),
+            "acodec": metadata.get("acodec"),
+            "filesize": metadata.get("filesize"),
+            "filesize_approx": metadata.get("filesize_approx"),
+            "tbr": metadata.get("tbr"),
+            "abr": metadata.get("abr"),
+            "vbr": metadata.get("vbr"),
+            "aspect_ratio": metadata.get("aspect_ratio"),
+            "stretched_ratio": metadata.get("stretched_ratio"),
+        },
+        
+        # Location data (if available)
+        "location": {
+            "location": metadata.get("location"),
+            "latitude": metadata.get("latitude") if metadata.get("latitude") else None,
+            "longitude": metadata.get("longitude") if metadata.get("longitude") else None,
+        },
+        
+        # Live stream info
+        "live": {
+            "is_live": metadata.get("is_live"),
+            "was_live": metadata.get("was_live"),
+            "live_status": metadata.get("live_status"),
+            "release_timestamp": metadata.get("release_timestamp"),
+            "availability": metadata.get("availability"),
+        },
+        
         # Thumbnail
         "thumbnail": metadata.get("thumbnail"),
-        # Audio info (for music)
-        "track": metadata.get("track"),
-        "artist": metadata.get("artist"),
-        "album": metadata.get("album"),
+        
+        # Subtitles info (just availability, not content)
+        "has_subtitles": bool(metadata.get("subtitles") or metadata.get("automatic_captions")),
+        "subtitle_languages": list(metadata.get("subtitles", {}).keys()) if metadata.get("subtitles") else [],
     }
 
 
@@ -1248,6 +1329,23 @@ def _get_browse_html() -> str:
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
+            max-height: 60vh;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+        
+        .video-details::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .video-details::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+        
+        .video-details::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
         }
         
         .detail-item {
@@ -1265,7 +1363,56 @@ def _get_browse_html() -> str:
         
         .detail-value {
             font-size: 0.95rem;
-            word-break: break-all;
+            word-break: break-word;
+        }
+        
+        /* Metadata category styles */
+        .meta-category {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        
+        .meta-category-header {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #888;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .meta-category-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+        
+        .meta-category-content .detail-item {
+            background: transparent;
+            padding: 0;
+        }
+        
+        .meta-tag {
+            background: rgba(100, 181, 246, 0.15);
+            color: #64b5f6;
+            padding: 3px 10px;
+            border-radius: 12px;
+            margin: 2px;
+            display: inline-block;
+            font-size: 0.8rem;
+        }
+        
+        .meta-description {
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+            line-height: 1.5;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            font-size: 0.9rem;
         }
         
         .modal-actions {
@@ -2085,120 +2232,180 @@ def _get_browse_html() -> str:
         }
         
         function renderRichDetails(video, meta, container) {
-            // Format duration
-            let durationStr = '';
-            if (meta.duration) {
-                const mins = Math.floor(meta.duration / 60);
-                const secs = Math.floor(meta.duration % 60);
-                durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+            // Metadata field configuration - easily extensible for new platforms
+            // Format: { key: { label, format, wide } }
+            // format: 'text', 'number', 'date', 'duration', 'url', 'tags', 'resolution'
+            const fieldConfig = {
+                // Basic fields
+                title: { label: 'Title', format: 'text', wide: true },
+                description: { label: 'Description', format: 'description', wide: true },
+                webpage_url: { label: 'Original URL', format: 'url', wide: true },
+                duration: { label: 'Duration', format: 'duration' },
+                upload_date: { label: 'Upload Date', format: 'date' },
+                release_date: { label: 'Release Date', format: 'date' },
+                release_year: { label: 'Release Year', format: 'text' },
+                
+                // Creator fields
+                uploader: { label: 'Creator', format: 'text' },
+                uploader_url: { label: 'Creator URL', format: 'url' },
+                channel: { label: 'Channel', format: 'text' },
+                channel_url: { label: 'Channel URL', format: 'url' },
+                channel_follower_count: { label: 'Followers', format: 'number' },
+                
+                // Engagement fields
+                view_count: { label: 'Views', format: 'number' },
+                like_count: { label: 'Likes', format: 'number' },
+                dislike_count: { label: 'Dislikes', format: 'number' },
+                comment_count: { label: 'Comments', format: 'number' },
+                repost_count: { label: 'Reposts', format: 'number' },
+                average_rating: { label: 'Rating', format: 'text' },
+                age_limit: { label: 'Age Limit', format: 'text' },
+                
+                // Categorization fields
+                categories: { label: 'Categories', format: 'tags' },
+                tags: { label: 'Tags', format: 'tags', wide: true },
+                genres: { label: 'Genres', format: 'tags' },
+                playlist: { label: 'Playlist', format: 'text' },
+                
+                // Audio fields
+                track: { label: 'Track', format: 'text' },
+                artist: { label: 'Artist', format: 'text' },
+                album: { label: 'Album', format: 'text' },
+                composer: { label: 'Composer', format: 'text' },
+                genre: { label: 'Genre', format: 'text' },
+                
+                // Technical fields
+                extractor: { label: 'Platform', format: 'text' },
+                format: { label: 'Format', format: 'text' },
+                resolution: { label: 'Resolution', format: 'resolution' },
+                fps: { label: 'FPS', format: 'text' },
+                vcodec: { label: 'Video Codec', format: 'text' },
+                acodec: { label: 'Audio Codec', format: 'text' },
+                
+                // Location
+                location: { label: 'Location', format: 'text' },
+                
+                // Live
+                live_status: { label: 'Live Status', format: 'text' },
+                availability: { label: 'Availability', format: 'text' },
+            };
+            
+            // Formatters for different data types
+            const formatters = {
+                text: (v) => escapeHtml(String(v)),
+                number: (v) => Number(v).toLocaleString(),
+                date: (v) => {
+                    if (!v) return null;
+                    if (typeof v === 'string' && v.length === 8) {
+                        return `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`;
+                    }
+                    return v;
+                },
+                duration: (v) => {
+                    if (!v) return null;
+                    const hrs = Math.floor(v / 3600);
+                    const mins = Math.floor((v % 3600) / 60);
+                    const secs = Math.floor(v % 60);
+                    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
+                    if (mins > 0) return `${mins}m ${secs}s`;
+                    return `${secs}s`;
+                },
+                url: (v) => `<a href="${escapeHtml(v)}" target="_blank" rel="noopener" style="color: #64b5f6; word-break: break-all;">${escapeHtml(v)}</a>`,
+                tags: (v) => {
+                    if (!Array.isArray(v) || v.length === 0) return null;
+                    return v.slice(0, 15).map(t => 
+                        `<span class="meta-tag">${escapeHtml(t)}</span>`
+                    ).join('') + (v.length > 15 ? `<span class="meta-tag">+${v.length - 15} more</span>` : '');
+                },
+                description: (v) => {
+                    if (!v) return null;
+                    const escaped = escapeHtml(v);
+                    return `<div class="meta-description">${escaped}</div>`;
+                },
+                resolution: (v, data) => {
+                    if (data.width && data.height) {
+                        return `${data.width}x${data.height}`;
+                    }
+                    return v || null;
+                }
+            };
+            
+            // Category display configuration
+            const categories = [
+                { key: 'basic', title: 'Content Info', icon: '📄', fields: ['title', 'description', 'duration', 'upload_date', 'release_date', 'webpage_url'] },
+                { key: 'creator', title: 'Creator', icon: '👤', fields: ['uploader', 'channel', 'uploader_url', 'channel_url', 'channel_follower_count'] },
+                { key: 'engagement', title: 'Engagement', icon: '📊', fields: ['view_count', 'like_count', 'dislike_count', 'comment_count', 'repost_count', 'average_rating'] },
+                { key: 'categorization', title: 'Categories', icon: '🏷️', fields: ['categories', 'tags', 'genres', 'playlist'] },
+                { key: 'audio', title: 'Audio/Music', icon: '🎵', fields: ['track', 'artist', 'album', 'composer', 'genre'] },
+                { key: 'technical', title: 'Technical', icon: '⚙️', fields: ['extractor', 'format', 'resolution', 'fps', 'vcodec', 'acodec'] },
+                { key: 'location', title: 'Location', icon: '📍', fields: ['location'] },
+                { key: 'live', title: 'Live Info', icon: '🔴', fields: ['live_status', 'availability'] },
+            ];
+            
+            // Helper to get value from nested category data
+            function getValue(categoryKey, fieldKey) {
+                const category = meta[categoryKey];
+                if (!category || typeof category !== 'object') return null;
+                return category[fieldKey];
             }
             
-            // Format numbers
-            const formatNum = (n) => n ? n.toLocaleString() : null;
-            
-            // Format upload date
-            let uploadDateStr = '';
-            if (meta.upload_date) {
-                const d = meta.upload_date;
-                uploadDateStr = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+            // Render field item
+            function renderField(fieldKey, value, categoryData) {
+                if (value === null || value === undefined || value === '' || 
+                    (Array.isArray(value) && value.length === 0)) {
+                    return '';
+                }
+                
+                const config = fieldConfig[fieldKey] || { label: fieldKey, format: 'text' };
+                const formatter = formatters[config.format] || formatters.text;
+                const formatted = formatter(value, categoryData || {});
+                
+                if (!formatted) return '';
+                
+                const wideClass = config.wide ? ' style="grid-column: 1 / -1;"' : '';
+                return `<div class="detail-item"${wideClass}>
+                    <div class="detail-label">${config.label}</div>
+                    <div class="detail-value">${formatted}</div>
+                </div>`;
             }
             
             let html = '';
             
-            // Title (full, not truncated)
-            if (meta.title) {
-                html += `<div class="detail-item" style="grid-column: 1 / -1;">
-                    <div class="detail-label">Title</div>
-                    <div class="detail-value">${escapeHtml(meta.title)}</div>
-                </div>`;
-            }
-            
-            // Uploader/Channel
-            if (meta.uploader) {
-                html += `<div class="detail-item">
-                    <div class="detail-label">Uploader</div>
-                    <div class="detail-value">${escapeHtml(meta.uploader)}</div>
-                </div>`;
-            }
-            
-            // Duration
-            if (durationStr) {
-                html += `<div class="detail-item">
-                    <div class="detail-label">Duration</div>
-                    <div class="detail-value">${durationStr}</div>
-                </div>`;
-            }
-            
-            // Upload date
-            if (uploadDateStr) {
-                html += `<div class="detail-item">
-                    <div class="detail-label">Upload Date</div>
-                    <div class="detail-value">${uploadDateStr}</div>
-                </div>`;
-            }
-            
-            // View count
-            if (meta.view_count) {
-                html += `<div class="detail-item">
-                    <div class="detail-label">Views</div>
-                    <div class="detail-value">${formatNum(meta.view_count)}</div>
-                </div>`;
-            }
-            
-            // Like count
-            if (meta.like_count) {
-                html += `<div class="detail-item">
-                    <div class="detail-label">Likes</div>
-                    <div class="detail-value">${formatNum(meta.like_count)}</div>
-                </div>`;
-            }
-            
-            // Comment count
-            if (meta.comment_count) {
-                html += `<div class="detail-item">
-                    <div class="detail-label">Comments</div>
-                    <div class="detail-value">${formatNum(meta.comment_count)}</div>
-                </div>`;
-            }
-            
-            // File info
+            // Add file info at the top
             html += `<div class="detail-item">
                 <div class="detail-label">File Size</div>
                 <div class="detail-value">${video.size_formatted}</div>
             </div>`;
-            
             html += `<div class="detail-item">
-                <div class="detail-label">Platform</div>
-                <div class="detail-value">${escapeHtml(meta.extractor || video.genre)}</div>
+                <div class="detail-label">Downloaded</div>
+                <div class="detail-value">${video.modified_formatted}</div>
             </div>`;
             
-            // Description (if present, show truncated with expand)
-            if (meta.description) {
-                const desc = meta.description.length > 300 
-                    ? meta.description.slice(0, 300) + '...' 
-                    : meta.description;
-                html += `<div class="detail-item" style="grid-column: 1 / -1;">
-                    <div class="detail-label">Description</div>
-                    <div class="detail-value" style="white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${escapeHtml(desc)}</div>
-                </div>`;
+            // Render each category with content
+            for (const cat of categories) {
+                const categoryData = meta[cat.key];
+                if (!categoryData || typeof categoryData !== 'object') continue;
+                
+                // Check if category has any non-empty values
+                let categoryHtml = '';
+                for (const fieldKey of cat.fields) {
+                    const value = categoryData[fieldKey];
+                    categoryHtml += renderField(fieldKey, value, categoryData);
+                }
+                
+                if (categoryHtml) {
+                    html += `<div class="meta-category" style="grid-column: 1 / -1;">
+                        <div class="meta-category-header">${cat.icon} ${cat.title}</div>
+                        <div class="meta-category-content">${categoryHtml}</div>
+                    </div>`;
+                }
             }
             
-            // Tags
-            if (meta.tags && meta.tags.length > 0) {
-                const tagsHtml = meta.tags.slice(0, 10).map(t => 
-                    `<span style="background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; margin: 2px; display: inline-block; font-size: 0.8rem;">${escapeHtml(t)}</span>`
-                ).join('');
+            // Subtitle info
+            if (meta.has_subtitles && meta.subtitle_languages && meta.subtitle_languages.length > 0) {
                 html += `<div class="detail-item" style="grid-column: 1 / -1;">
-                    <div class="detail-label">Tags</div>
-                    <div class="detail-value">${tagsHtml}</div>
-                </div>`;
-            }
-            
-            // Original URL
-            if (meta.webpage_url) {
-                html += `<div class="detail-item" style="grid-column: 1 / -1;">
-                    <div class="detail-label">Original URL</div>
-                    <div class="detail-value"><a href="${escapeHtml(meta.webpage_url)}" target="_blank" style="color: #64b5f6; word-break: break-all;">${escapeHtml(meta.webpage_url)}</a></div>
+                    <div class="detail-label">Subtitles Available</div>
+                    <div class="detail-value">${meta.subtitle_languages.map(l => `<span class="meta-tag">${escapeHtml(l)}</span>`).join('')}</div>
                 </div>`;
             }
             
