@@ -842,6 +842,122 @@ async def retry_download(request: Request, download_id: str):
         )
 
 
+@router.post(
+    "/archive/{file_path:path}",
+    summary="Archive Video",
+    description="Move a video and its metadata to the archived directory.",
+    responses={
+        200: {"description": "Video archived successfully"},
+        401: {"description": "Authentication required"},
+        403: {"description": "Access forbidden"},
+        404: {"description": "File not found"}
+    }
+)
+async def archive_video(request: Request, file_path: str):
+    """Archive a video by moving it to the archived directory.
+    
+    Moves the video file and all associated files (.info.json, thumbnails)
+    to archived/{username}/{genre}/ preserving the folder structure.
+    User can manually delete archived files later.
+    """
+    await require_auth(request)
+    
+    config = get_config()
+    root_dir = Path(config.downloads.root_directory)
+    
+    # Decode URL-encoded path
+    file_path = unquote(file_path)
+    
+    # Security: Validate path is within allowed directory
+    if not is_safe_path(file_path, root_dir):
+        logger.warning(f"Path traversal attempt blocked: {file_path}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Invalid path"
+        )
+    
+    # Build full path to video file
+    video_path = (root_dir / file_path).resolve()
+    
+    # Check video file exists
+    if not video_path.exists() or not video_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video file not found"
+        )
+    
+    # Parse the path to get username and genre
+    # Expected format: username/genre/filename
+    path_parts = file_path.split('/')
+    if len(path_parts) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file path format"
+        )
+    
+    username = path_parts[0]
+    genre = path_parts[1]
+    filename = path_parts[-1]
+    
+    # Create archived directory structure
+    archived_dir = root_dir / "archived" / username / genre
+    archived_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Find all associated files (video, .info.json, thumbnails)
+    video_stem = video_path.stem
+    video_parent = video_path.parent
+    
+    files_to_move = []
+    
+    # Main video file
+    files_to_move.append(video_path)
+    
+    # Metadata sidecar file
+    info_json = video_parent / f"{video_path.name}.info.json"
+    if info_json.exists():
+        files_to_move.append(info_json)
+    
+    # Thumbnail files (check common extensions)
+    for ext in ['.webp', '.jpg', '.jpeg', '.png']:
+        thumb = video_parent / f"{video_stem}{ext}"
+        if thumb.exists():
+            files_to_move.append(thumb)
+    
+    # Move all files
+    moved_files = []
+    try:
+        import shutil
+        for src_path in files_to_move:
+            dest_path = archived_dir / src_path.name
+            
+            # Handle filename collision by adding suffix
+            if dest_path.exists():
+                base = dest_path.stem
+                ext = dest_path.suffix
+                counter = 1
+                while dest_path.exists():
+                    dest_path = archived_dir / f"{base}_{counter}{ext}"
+                    counter += 1
+            
+            shutil.move(str(src_path), str(dest_path))
+            moved_files.append(dest_path.name)
+            logger.info(f"Archived: {src_path.name} -> {dest_path}")
+    
+    except Exception as e:
+        logger.error(f"Error archiving {file_path}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to archive: {str(e)}"
+        )
+    
+    return {
+        "success": True,
+        "message": f"Archived {len(moved_files)} file(s)",
+        "archived_path": f"archived/{username}/{genre}",
+        "files": moved_files
+    }
+
+
 @router.get(
     "/browse",
     response_class=HTMLResponse,
@@ -1452,6 +1568,24 @@ def _get_browse_html() -> str:
             background: rgba(255, 255, 255, 0.2);
         }
         
+        .btn-warning {
+            background: rgba(255, 152, 0, 0.8);
+            color: #fff;
+        }
+        
+        .btn-warning:hover {
+            background: rgba(255, 152, 0, 1);
+        }
+        
+        .btn-danger {
+            background: rgba(244, 67, 54, 0.8);
+            color: #fff;
+        }
+        
+        .btn-danger:hover {
+            background: rgba(244, 67, 54, 1);
+        }
+        
         /* Loading */
         .loading {
             text-align: center;
@@ -1849,6 +1983,9 @@ def _get_browse_html() -> str:
                     <a id="download-btn" class="btn btn-primary" download>
                         ⬇️ Download
                     </a>
+                    <button id="archive-btn" class="btn btn-warning" onclick="archiveCurrentVideo()">
+                        📦 Archive
+                    </button>
                     <button class="btn btn-secondary" onclick="closeModal()">Close</button>
                 </div>
             </div>
@@ -2161,12 +2298,18 @@ def _get_browse_html() -> str:
         }
         
         // Modal
+        // Store current video for archive function
+        let currentVideo = null;
+        
         async function openVideo(video) {
+            currentVideo = video;  // Store for archive
+            
             const modal = document.getElementById('modal-overlay');
             const player = document.getElementById('video-player');
             const title = document.getElementById('modal-title');
             const details = document.getElementById('video-details');
             const downloadBtn = document.getElementById('download-btn');
+            const archiveBtn = document.getElementById('archive-btn');
             
             const streamUrl = `/api/v1/downloads/stream/${encodeURIComponent(video.path)}`;
             
@@ -2184,6 +2327,10 @@ def _get_browse_html() -> str:
             
             downloadBtn.href = streamUrl;
             downloadBtn.download = video.filename;
+            
+            // Reset archive button
+            archiveBtn.disabled = false;
+            archiveBtn.textContent = '📦 Archive';
             
             // Show basic info first, then load rich metadata
             renderBasicDetails(video, details);
@@ -2424,6 +2571,59 @@ def _get_browse_html() -> str:
         function closeModalOnOverlay(event) {
             if (event.target.id === 'modal-overlay') {
                 closeModal();
+            }
+        }
+        
+        async function archiveCurrentVideo() {
+            if (!currentVideo) return;
+            
+            const archiveBtn = document.getElementById('archive-btn');
+            
+            // Confirm archive
+            if (!confirm(`Archive "${currentVideo.filename}"?\n\nThe video and its metadata will be moved to the archived folder.`)) {
+                return;
+            }
+            
+            // Disable button and show loading state
+            archiveBtn.disabled = true;
+            archiveBtn.textContent = '📦 Archiving...';
+            
+            try {
+                const response = await fetch(`/api/v1/downloads/archive/${encodeURIComponent(currentVideo.path)}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail || 'Failed to archive');
+                }
+                
+                const result = await response.json();
+                
+                // Show success
+                archiveBtn.textContent = '✓ Archived';
+                archiveBtn.classList.remove('btn-warning');
+                archiveBtn.classList.add('btn-secondary');
+                
+                // Reload the video list after a short delay
+                setTimeout(() => {
+                    closeModal();
+                    loadVideos();
+                    loadFolderStructure();
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Archive error:', error);
+                archiveBtn.textContent = '❌ Failed';
+                archiveBtn.disabled = false;
+                
+                setTimeout(() => {
+                    archiveBtn.textContent = '📦 Archive';
+                    archiveBtn.classList.remove('btn-secondary');
+                    archiveBtn.classList.add('btn-warning');
+                }, 2000);
+                
+                alert('Failed to archive: ' + error.message);
             }
         }
         
