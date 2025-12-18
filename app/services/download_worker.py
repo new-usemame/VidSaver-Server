@@ -301,71 +301,113 @@ class DownloadWorker:
                     logger.warning(f"Cookie file specified but not found: {cookie_path}")
             
             # Download video
+            info = None
+            download_error = None
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                
-                if info is None:
+                try:
+                    info = ydl.extract_info(url, download=True)
+                except yt_dlp.utils.DownloadError as e:
+                    # yt-dlp may throw errors about intermediate files during merge
+                    # but the final output might still be created successfully
+                    download_error = e
+                    logger.warning(f"yt-dlp reported error (checking if output exists): {e}")
+                    
+                    # Try to extract info without downloading to get expected filename
+                    try:
+                        info = ydl.extract_info(url, download=False)
+                    except Exception:
+                        pass
+            
+            if info is None:
+                if download_error:
                     return {
                         'success': False,
-                        'error': 'Failed to extract video information'
+                        'error': f'Download error: {str(download_error)}'
                     }
-                
-                # Try to detect genre from extractor info (fallback/verification)
-                extractor_name = info.get('extractor_key') or info.get('extractor')
-                detected_genre = GenreDetector.detect_from_extractor(extractor_name)
-                
-                # If we got a better genre detection, move the file
-                final_genre = genre
-                if detected_genre and detected_genre != genre:
-                    logger.info(f"yt-dlp detected better genre: {detected_genre} (was: {genre})")
-                    final_genre = detected_genre
-                    
-                    # Get filename first
-                    old_filename = ydl.prepare_filename(info)
-                    
-                    # Move file to correct genre folder if it exists
-                    if os.path.exists(old_filename):
-                        new_genre_dir = self.user_service.get_genre_directory(user.username, final_genre)
-                        new_genre_dir.mkdir(parents=True, exist_ok=True)
-                        new_filename = os.path.join(str(new_genre_dir), os.path.basename(old_filename))
-                        
-                        try:
-                            os.rename(old_filename, new_filename)
-                            filename = new_filename
-                            logger.info(f"Moved file to correct genre folder: {final_genre}")
-                        except Exception as move_error:
-                            logger.warning(f"Failed to move file to correct genre: {move_error}")
-                            filename = old_filename
-                    else:
-                        filename = ydl.prepare_filename(info)
-                else:
-                    filename = ydl.prepare_filename(info)
-                
-                # Get file size
-                file_size = 0
-                if os.path.exists(filename):
-                    file_size = os.path.getsize(filename)
-                
-                result = {
-                    'success': True,
-                    'filename': os.path.basename(filename),
-                    'file_size': file_size,
-                    'title': info.get('title', 'Unknown'),
-                    'duration': info.get('duration', 0),
+                return {
+                    'success': False,
+                    'error': 'Failed to extract video information'
                 }
+            
+            # Try to detect genre from extractor info (fallback/verification)
+            extractor_name = info.get('extractor_key') or info.get('extractor')
+            detected_genre = GenreDetector.detect_from_extractor(extractor_name)
+            
+            # Calculate expected filename
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                expected_filename = ydl.prepare_filename(info)
+            
+            # Check if file exists (might exist even if yt-dlp reported an error)
+            # Also check for merged output format (.mp4) if expected file doesn't exist
+            filename = expected_filename
+            if not os.path.exists(filename):
+                # Try .mp4 extension (merge_output_format)
+                base_without_ext = os.path.splitext(expected_filename)[0]
+                mp4_filename = base_without_ext + '.mp4'
+                if os.path.exists(mp4_filename):
+                    filename = mp4_filename
+                else:
+                    # Search for any file with our safe_id prefix in the genre directory
+                    for f in genre_dir.iterdir():
+                        if f.name.startswith(safe_id) and f.suffix.lower() in {'.mp4', '.webm', '.mkv', '.mov'}:
+                            filename = str(f)
+                            logger.info(f"Found output file by prefix: {filename}")
+                            break
+            
+            # If file still doesn't exist after error, it's a real failure
+            if not os.path.exists(filename):
+                if download_error:
+                    return {
+                        'success': False,
+                        'error': f'Download error: {str(download_error)}'
+                    }
+                return {
+                    'success': False,
+                    'error': 'Download completed but output file not found'
+                }
+            
+            # File exists - download succeeded (even if yt-dlp reported intermediate errors)
+            if download_error:
+                logger.info(f"Download succeeded despite yt-dlp error - output file exists: {filename}")
+            
+            # If we got a better genre detection, move the file
+            final_genre = genre
+            if detected_genre and detected_genre != genre:
+                logger.info(f"yt-dlp detected better genre: {detected_genre} (was: {genre})")
+                final_genre = detected_genre
                 
-                # Include detected genre if different
-                if final_genre != genre:
-                    result['detected_genre'] = final_genre
-                
-                return result
-        
-        except yt_dlp.utils.DownloadError as e:
-            logger.error(f"yt-dlp download error: {e}")
-            return {
-                'success': False,
-                'error': f'Download error: {str(e)}'
+                # Move file to correct genre folder if it exists
+                if os.path.exists(filename):
+                    new_genre_dir = self.user_service.get_genre_directory(user.username, final_genre)
+                    new_genre_dir.mkdir(parents=True, exist_ok=True)
+                    new_filename = os.path.join(str(new_genre_dir), os.path.basename(filename))
+                    
+                    try:
+                        os.rename(filename, new_filename)
+                        filename = new_filename
+                        logger.info(f"Moved file to correct genre folder: {final_genre}")
+                    except Exception as move_error:
+                        logger.warning(f"Failed to move file to correct genre: {move_error}")
+            
+            # Get file size
+            file_size = 0
+            if os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+            
+            result = {
+                'success': True,
+                'filename': os.path.basename(filename),
+                'file_size': file_size,
+                'title': info.get('title', 'Unknown'),
+                'duration': info.get('duration', 0),
             }
+            
+            # Include detected genre if different
+            if final_genre != genre:
+                result['detected_genre'] = final_genre
+            
+            return result
         
         except Exception as e:
             logger.error(f"Unexpected error during download: {e}", exc_info=True)
