@@ -2,17 +2,14 @@
 
 GET /api/v1/downloads/browse - HTML page for browsing downloads
 GET /api/v1/downloads/structure - Returns folder tree JSON
-GET /api/v1/downloads/videos - Returns videos list with filters and metadata paths
-GET /api/v1/downloads/stream/{path} - Stream/download a file (video, thumbnail, etc.)
-GET /api/v1/downloads/metadata/{path} - Get parsed metadata JSON for a video
-GET /api/v1/downloads/queue - Get download queue status
+GET /api/v1/downloads/videos - Returns videos list with filters
+GET /api/v1/downloads/stream/{path} - Stream/download a file
 
 SECURITY: This module ALWAYS requires authentication, even if global auth is disabled.
 """
 
 import logging
 import os
-import json
 import mimetypes
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -41,8 +38,6 @@ ALLOWED_EXTENSIONS = {
     '.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v', '.m4a',  # Video
     '.mp3', '.wav', '.ogg', '.flac',  # Audio
     '.pdf', '.epub', '.mobi',  # Documents
-    '.json',  # Metadata sidecar files
-    '.webp', '.jpg', '.jpeg', '.png',  # Thumbnails
 }
 
 
@@ -164,49 +159,6 @@ def format_timestamp(timestamp: int) -> str:
         return f"{days} day{'s' if days != 1 else ''} ago"
     else:
         return datetime.fromtimestamp(timestamp).strftime("%b %d, %Y")
-
-
-def read_video_metadata(video_path: Path) -> Optional[Dict[str, Any]]:
-    """Read metadata from sidecar JSON file.
-    
-    Args:
-        video_path: Path to the video file
-        
-    Returns:
-        Parsed metadata dict, or None if not found/invalid
-    """
-    info_path = video_path.parent / (video_path.name + '.info.json')
-    if not info_path.exists():
-        return None
-    try:
-        with open(info_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.warning(f"Error reading metadata for {video_path}: {e}")
-        return None
-
-
-def get_thumbnail_path(video_path: Path) -> Optional[Path]:
-    """Find thumbnail file for a video.
-    
-    Checks for common thumbnail extensions in order of preference.
-    
-    Args:
-        video_path: Path to the video file
-        
-    Returns:
-        Path to thumbnail if found, None otherwise
-    """
-    # yt-dlp saves thumbnails with same base name but different extension
-    base = video_path.stem
-    parent = video_path.parent
-    
-    # Check common thumbnail extensions
-    for ext in ['.webp', '.jpg', '.jpeg', '.png']:
-        thumb_path = parent / f"{base}{ext}"
-        if thumb_path.exists():
-            return thumb_path
-    return None
 
 
 # =============================================================================
@@ -365,20 +317,10 @@ async def get_videos_list(
         for genre_dir in genre_dirs:
             genre_name = genre_dir.name
             
-            # Extensions that are primary content (not metadata/thumbnails)
-            primary_extensions = {
-                '.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v', '.m4a',  # Video
-                '.mp3', '.wav', '.ogg', '.flac',  # Audio
-                '.pdf', '.epub', '.mobi',  # Documents
-            }
-            
             for file_path in genre_dir.iterdir():
                 if not file_path.is_file():
                     continue
-                
-                # Only include primary content files (skip .info.json and thumbnails)
-                ext = file_path.suffix.lower()
-                if ext not in primary_extensions:
+                if not is_allowed_extension(file_path.name):
                     continue
                 
                 # Apply search filter
@@ -391,14 +333,6 @@ async def get_videos_list(
                     # Build relative path for streaming
                     rel_path = f"{user_name}/{genre_name}/{file_path.name}"
                     
-                    # Check for metadata sidecar file
-                    info_json_path = file_path.parent / (file_path.name + '.info.json')
-                    has_metadata = info_json_path.exists()
-                    
-                    # Check for thumbnail
-                    thumb = get_thumbnail_path(file_path)
-                    thumbnail_path = f"{user_name}/{genre_name}/{thumb.name}" if thumb else None
-                    
                     videos.append({
                         "filename": file_path.name,
                         "username": user_name,
@@ -408,10 +342,7 @@ async def get_videos_list(
                         "size_formatted": format_file_size(stat.st_size),
                         "modified_at": int(stat.st_mtime),
                         "modified_formatted": format_timestamp(int(stat.st_mtime)),
-                        "extension": ext,
-                        "has_metadata": has_metadata,
-                        "metadata_path": f"{rel_path}.info.json" if has_metadata else None,
-                        "thumbnail_path": thumbnail_path,
+                        "extension": file_path.suffix.lower()
                     })
                 except OSError as e:
                     logger.warning(f"Error reading file {file_path}: {e}")
@@ -510,187 +441,6 @@ async def stream_file(request: Request, file_path: str):
 
 
 @router.get(
-    "/metadata/{file_path:path}",
-    summary="Get Video Metadata",
-    description="Returns parsed metadata JSON for a video file from its sidecar .info.json file.",
-    responses={
-        200: {"description": "Metadata retrieved successfully"},
-        401: {"description": "Authentication required"},
-        404: {"description": "Video or metadata not found"}
-    }
-)
-async def get_video_metadata(request: Request, file_path: str):
-    """Get metadata for a video file.
-    
-    Reads the .info.json sidecar file and returns parsed metadata.
-    Returns curated fields useful for display, not the raw yt-dlp dump.
-    """
-    await require_auth(request)
-    
-    config = get_config()
-    root_dir = Path(config.downloads.root_directory)
-    
-    # Decode URL-encoded path
-    file_path = unquote(file_path)
-    
-    # Security: Validate path is within allowed directory
-    if not is_safe_path(file_path, root_dir):
-        logger.warning(f"Path traversal attempt blocked: {file_path}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: Invalid path"
-        )
-    
-    # Build full path to video file
-    video_path = (root_dir / file_path).resolve()
-    
-    # Check video file exists
-    if not video_path.exists() or not video_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video file not found"
-        )
-    
-    # Read metadata from sidecar file
-    metadata = read_video_metadata(video_path)
-    
-    if metadata is None:
-        # Return minimal metadata from file info
-        try:
-            stat = video_path.stat()
-            return {
-                "has_full_metadata": False,
-                "filename": video_path.name,
-                "file_size": stat.st_size,
-                "modified_at": int(stat.st_mtime),
-            }
-        except OSError:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Could not read file information"
-            )
-    
-    # Build comprehensive metadata response organized by categories
-    # This structure is designed to be extensible for new platforms
-    # The UI will iterate through categories and display available fields
-    
-    def get_first(*keys):
-        """Get first non-None value from multiple possible keys"""
-        for key in keys:
-            val = metadata.get(key)
-            if val is not None:
-                return val
-        return None
-    
-    return {
-        "has_full_metadata": True,
-        
-        # Basic content information
-        "basic": {
-            "id": metadata.get("id"),
-            "title": get_first("title", "fulltitle", "alt_title"),
-            "description": metadata.get("description"),
-            "webpage_url": get_first("webpage_url", "original_url", "url"),
-            "duration": metadata.get("duration"),
-            "duration_string": metadata.get("duration_string"),
-            "upload_date": metadata.get("upload_date"),
-            "timestamp": metadata.get("timestamp"),
-            "release_date": metadata.get("release_date"),
-            "release_year": metadata.get("release_year"),
-        },
-        
-        # Creator/channel information
-        "creator": {
-            "uploader": get_first("uploader", "creator", "channel", "artist"),
-            "uploader_id": get_first("uploader_id", "channel_id", "creator_id"),
-            "uploader_url": get_first("uploader_url", "channel_url"),
-            "channel": metadata.get("channel"),
-            "channel_id": metadata.get("channel_id"),
-            "channel_url": metadata.get("channel_url"),
-            "channel_follower_count": metadata.get("channel_follower_count"),
-        },
-        
-        # Engagement metrics
-        "engagement": {
-            "view_count": metadata.get("view_count"),
-            "like_count": metadata.get("like_count"),
-            "dislike_count": metadata.get("dislike_count"),
-            "comment_count": metadata.get("comment_count"),
-            "repost_count": metadata.get("repost_count"),
-            "average_rating": metadata.get("average_rating"),
-            "age_limit": metadata.get("age_limit"),
-        },
-        
-        # Categorization and tags
-        "categorization": {
-            "categories": metadata.get("categories"),
-            "tags": metadata.get("tags"),
-            "genres": metadata.get("genres"),
-            "playlist": metadata.get("playlist"),
-            "playlist_index": metadata.get("playlist_index"),
-            "chapter": metadata.get("chapter"),
-            "chapter_number": metadata.get("chapter_number"),
-        },
-        
-        # Audio/music specific (TikTok sounds, music videos, etc.)
-        "audio": {
-            "track": metadata.get("track"),
-            "artist": metadata.get("artist"),
-            "album": metadata.get("album"),
-            "album_artist": metadata.get("album_artist"),
-            "disc_number": metadata.get("disc_number"),
-            "track_number": metadata.get("track_number"),
-            "composer": metadata.get("composer"),
-            "genre": metadata.get("genre"),
-        },
-        
-        # Technical/platform info
-        "technical": {
-            "extractor": metadata.get("extractor"),
-            "extractor_key": metadata.get("extractor_key"),
-            "format": metadata.get("format"),
-            "format_id": metadata.get("format_id"),
-            "resolution": metadata.get("resolution"),
-            "width": metadata.get("width"),
-            "height": metadata.get("height"),
-            "fps": metadata.get("fps"),
-            "vcodec": metadata.get("vcodec"),
-            "acodec": metadata.get("acodec"),
-            "filesize": metadata.get("filesize"),
-            "filesize_approx": metadata.get("filesize_approx"),
-            "tbr": metadata.get("tbr"),
-            "abr": metadata.get("abr"),
-            "vbr": metadata.get("vbr"),
-            "aspect_ratio": metadata.get("aspect_ratio"),
-            "stretched_ratio": metadata.get("stretched_ratio"),
-        },
-        
-        # Location data (if available)
-        "location": {
-            "location": metadata.get("location"),
-            "latitude": metadata.get("latitude") if metadata.get("latitude") else None,
-            "longitude": metadata.get("longitude") if metadata.get("longitude") else None,
-        },
-        
-        # Live stream info
-        "live": {
-            "is_live": metadata.get("is_live"),
-            "was_live": metadata.get("was_live"),
-            "live_status": metadata.get("live_status"),
-            "release_timestamp": metadata.get("release_timestamp"),
-            "availability": metadata.get("availability"),
-        },
-        
-        # Thumbnail
-        "thumbnail": metadata.get("thumbnail"),
-        
-        # Subtitles info (just availability, not content)
-        "has_subtitles": bool(metadata.get("subtitles") or metadata.get("automatic_captions")),
-        "subtitle_languages": list(metadata.get("subtitles", {}).keys()) if metadata.get("subtitles") else [],
-    }
-
-
-@router.get(
     "/queue",
     summary="Get Download Queue",
     description="Returns pending, in-progress, and failed downloads from the database.",
@@ -768,194 +518,6 @@ async def get_download_queue(request: Request):
             "counts": {"downloading": 0, "pending": 0, "failed": 0, "total": 0},
             "error": str(e)
         }
-
-
-@router.post(
-    "/retry/{download_id}",
-    summary="Retry Failed Download",
-    description="Reset a failed download back to pending status so it will be retried.",
-    responses={
-        200: {"description": "Download queued for retry"},
-        401: {"description": "Authentication required"},
-        404: {"description": "Download not found"},
-        400: {"description": "Download is not in failed status"}
-    }
-)
-async def retry_download(request: Request, download_id: str):
-    """Retry a failed download
-    
-    Resets the download status from 'failed' back to 'pending' so the
-    download worker will pick it up and try again.
-    """
-    await require_auth(request)
-    
-    config = get_config()
-    
-    try:
-        db = DatabaseService(db_path=config.database.path)
-        
-        # Get the download
-        download = db.get_download(download_id)
-        
-        if not download:
-            db.close_connection()
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": "not_found", "message": "Download not found"}
-            )
-        
-        # Check if it's actually failed
-        if download.status != DownloadStatus.FAILED:
-            db.close_connection()
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "invalid_status",
-                    "message": f"Cannot retry download with status '{download.status.value}'. Only failed downloads can be retried."
-                }
-            )
-        
-        # Reset to pending status
-        db.update_download_status(
-            download_id=download_id,
-            status=DownloadStatus.PENDING,
-            error_message=None  # Clear the error message
-        )
-        
-        db.close_connection()
-        
-        logger.info(f"Download {download_id} queued for retry")
-        
-        return {
-            "success": True,
-            "message": "Download queued for retry",
-            "download_id": download_id
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrying download {download_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"error": "server_error", "message": str(e)}
-        )
-
-
-@router.post(
-    "/archive/{file_path:path}",
-    summary="Archive Video",
-    description="Move a video and its metadata to the archived directory.",
-    responses={
-        200: {"description": "Video archived successfully"},
-        401: {"description": "Authentication required"},
-        403: {"description": "Access forbidden"},
-        404: {"description": "File not found"}
-    }
-)
-async def archive_video(request: Request, file_path: str):
-    """Archive a video by moving it to the archived directory.
-    
-    Moves the video file and all associated files (.info.json, thumbnails)
-    to archived/{username}/{genre}/ preserving the folder structure.
-    User can manually delete archived files later.
-    """
-    await require_auth(request)
-    
-    config = get_config()
-    root_dir = Path(config.downloads.root_directory)
-    
-    # Decode URL-encoded path
-    file_path = unquote(file_path)
-    
-    # Security: Validate path is within allowed directory
-    if not is_safe_path(file_path, root_dir):
-        logger.warning(f"Path traversal attempt blocked: {file_path}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: Invalid path"
-        )
-    
-    # Build full path to video file
-    video_path = (root_dir / file_path).resolve()
-    
-    # Check video file exists
-    if not video_path.exists() or not video_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video file not found"
-        )
-    
-    # Parse the path to get username and genre
-    # Expected format: username/genre/filename
-    path_parts = file_path.split('/')
-    if len(path_parts) < 3:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file path format"
-        )
-    
-    username = path_parts[0]
-    genre = path_parts[1]
-    filename = path_parts[-1]
-    
-    # Create archived directory structure
-    archived_dir = root_dir / "archived" / username / genre
-    archived_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Find all associated files (video, .info.json, thumbnails)
-    video_stem = video_path.stem
-    video_parent = video_path.parent
-    
-    files_to_move = []
-    
-    # Main video file
-    files_to_move.append(video_path)
-    
-    # Metadata sidecar file
-    info_json = video_parent / f"{video_path.name}.info.json"
-    if info_json.exists():
-        files_to_move.append(info_json)
-    
-    # Thumbnail files (check common extensions)
-    for ext in ['.webp', '.jpg', '.jpeg', '.png']:
-        thumb = video_parent / f"{video_stem}{ext}"
-        if thumb.exists():
-            files_to_move.append(thumb)
-    
-    # Move all files
-    moved_files = []
-    try:
-        import shutil
-        for src_path in files_to_move:
-            dest_path = archived_dir / src_path.name
-            
-            # Handle filename collision by adding suffix
-            if dest_path.exists():
-                base = dest_path.stem
-                ext = dest_path.suffix
-                counter = 1
-                while dest_path.exists():
-                    dest_path = archived_dir / f"{base}_{counter}{ext}"
-                    counter += 1
-            
-            shutil.move(str(src_path), str(dest_path))
-            moved_files.append(dest_path.name)
-            logger.info(f"Archived: {src_path.name} -> {dest_path}")
-    
-    except Exception as e:
-        logger.error(f"Error archiving {file_path}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to archive: {str(e)}"
-        )
-    
-    return {
-        "success": True,
-        "message": f"Archived {len(moved_files)} file(s)",
-        "archived_path": f"archived/{username}/{genre}",
-        "files": moved_files
-    }
 
 
 @router.get(
@@ -1327,18 +889,6 @@ def _get_browse_html() -> str:
             align-items: center;
             justify-content: center;
             font-size: 3rem;
-            overflow: hidden;
-            position: relative;
-        }
-        
-        .video-thumb-img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        
-        .video-thumb-icon {
-            font-size: 3rem;
         }
         
         .video-info {
@@ -1445,23 +995,6 @@ def _get_browse_html() -> str:
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            max-height: 60vh;
-            overflow-y: auto;
-            padding-right: 10px;
-        }
-        
-        .video-details::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        .video-details::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 3px;
-        }
-        
-        .video-details::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 3px;
         }
         
         .detail-item {
@@ -1479,56 +1012,7 @@ def _get_browse_html() -> str:
         
         .detail-value {
             font-size: 0.95rem;
-            word-break: break-word;
-        }
-        
-        /* Metadata category styles */
-        .meta-category {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 10px;
-        }
-        
-        .meta-category-header {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: #888;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .meta-category-content {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 12px;
-        }
-        
-        .meta-category-content .detail-item {
-            background: transparent;
-            padding: 0;
-        }
-        
-        .meta-tag {
-            background: rgba(100, 181, 246, 0.15);
-            color: #64b5f6;
-            padding: 3px 10px;
-            border-radius: 12px;
-            margin: 2px;
-            display: inline-block;
-            font-size: 0.8rem;
-        }
-        
-        .meta-description {
-            white-space: pre-wrap;
-            max-height: 200px;
-            overflow-y: auto;
-            line-height: 1.5;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 6px;
-            font-size: 0.9rem;
+            word-break: break-all;
         }
         
         .modal-actions {
@@ -1566,24 +1050,6 @@ def _get_browse_html() -> str:
         
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.2);
-        }
-        
-        .btn-warning {
-            background: rgba(255, 152, 0, 0.8);
-            color: #fff;
-        }
-        
-        .btn-warning:hover {
-            background: rgba(255, 152, 0, 1);
-        }
-        
-        .btn-danger {
-            background: rgba(244, 67, 54, 0.8);
-            color: #fff;
-        }
-        
-        .btn-danger:hover {
-            background: rgba(244, 67, 54, 1);
         }
         
         /* Loading */
@@ -1814,36 +1280,6 @@ def _get_browse_html() -> str:
             display: flex;
             justify-content: center;
         }
-        
-        .queue-item-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 10px;
-        }
-        
-        .btn-retry {
-            padding: 6px 12px;
-            background: rgba(76, 175, 80, 0.2);
-            border: 1px solid rgba(76, 175, 80, 0.4);
-            border-radius: 6px;
-            color: #4caf50;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-        }
-        
-        .btn-retry:hover {
-            background: rgba(76, 175, 80, 0.3);
-            border-color: rgba(76, 175, 80, 0.6);
-        }
-        
-        .btn-retry:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
     </style>
 </head>
 <body>
@@ -1983,9 +1419,6 @@ def _get_browse_html() -> str:
                     <a id="download-btn" class="btn btn-primary" download>
                         ⬇️ Download
                     </a>
-                    <button id="archive-btn" class="btn btn-warning" onclick="archiveCurrentVideo()">
-                        📦 Archive
-                    </button>
                     <button class="btn btn-secondary" onclick="closeModal()">Close</button>
                 </div>
             </div>
@@ -2206,17 +1639,9 @@ def _get_browse_html() -> str:
             let html = '';
             for (const video of data.videos) {
                 const icon = thumbIcons[video.extension] || '📄';
-                
-                // Use actual thumbnail if available, otherwise fall back to emoji icon
-                const thumbHtml = video.thumbnail_path
-                    ? `<img src="/api/v1/downloads/stream/${encodeURIComponent(video.thumbnail_path)}" 
-                           alt="" class="video-thumb-img" loading="lazy" 
-                           onerror="this.parentElement.innerHTML='<div class=\\'video-thumb-icon\\'>${icon}</div>'">`
-                    : `<div class="video-thumb-icon">${icon}</div>`;
-                
                 html += `
                     <div class="video-card" onclick="openVideo(${JSON.stringify(video).replace(/"/g, '&quot;')})">
-                        <div class="video-thumb">${thumbHtml}</div>
+                        <div class="video-thumb">${icon}</div>
                         <div class="video-info">
                             <div class="video-title" title="${escapeHtml(video.filename)}">${escapeHtml(video.filename)}</div>
                             <div class="video-meta">
@@ -2298,18 +1723,12 @@ def _get_browse_html() -> str:
         }
         
         // Modal
-        // Store current video for archive function
-        let currentVideo = null;
-        
-        async function openVideo(video) {
-            currentVideo = video;  // Store for archive
-            
+        function openVideo(video) {
             const modal = document.getElementById('modal-overlay');
             const player = document.getElementById('video-player');
             const title = document.getElementById('modal-title');
             const details = document.getElementById('video-details');
             const downloadBtn = document.getElementById('download-btn');
-            const archiveBtn = document.getElementById('archive-btn');
             
             const streamUrl = `/api/v1/downloads/stream/${encodeURIComponent(video.path)}`;
             
@@ -2325,36 +1744,7 @@ def _get_browse_html() -> str:
                 player.src = '';
             }
             
-            downloadBtn.href = streamUrl;
-            downloadBtn.download = video.filename;
-            
-            // Reset archive button
-            archiveBtn.disabled = false;
-            archiveBtn.textContent = '📦 Archive';
-            
-            // Show basic info first, then load rich metadata
-            renderBasicDetails(video, details);
-            modal.classList.add('active');
-            
-            // Fetch rich metadata if available
-            if (video.has_metadata) {
-                try {
-                    const response = await fetch(`/api/v1/downloads/metadata/${encodeURIComponent(video.path)}`);
-                    if (response.ok) {
-                        const metadata = await response.json();
-                        if (metadata.has_full_metadata) {
-                            renderRichDetails(video, metadata, details);
-                        }
-                    }
-                } catch (e) {
-                    console.log('Could not load metadata:', e);
-                    // Keep basic details
-                }
-            }
-        }
-        
-        function renderBasicDetails(video, container) {
-            container.innerHTML = `
+            details.innerHTML = `
                 <div class="detail-item">
                     <div class="detail-label">Filename</div>
                     <div class="detail-value">${escapeHtml(video.filename)}</div>
@@ -2376,187 +1766,11 @@ def _get_browse_html() -> str:
                     <div class="detail-value">${video.modified_formatted}</div>
                 </div>
             `;
-        }
-        
-        function renderRichDetails(video, meta, container) {
-            // Metadata field configuration - easily extensible for new platforms
-            // Format: { key: { label, format, wide } }
-            // format: 'text', 'number', 'date', 'duration', 'url', 'tags', 'resolution'
-            const fieldConfig = {
-                // Basic fields
-                title: { label: 'Title', format: 'text', wide: true },
-                description: { label: 'Description', format: 'description', wide: true },
-                webpage_url: { label: 'Original URL', format: 'url', wide: true },
-                duration: { label: 'Duration', format: 'duration' },
-                upload_date: { label: 'Upload Date', format: 'date' },
-                release_date: { label: 'Release Date', format: 'date' },
-                release_year: { label: 'Release Year', format: 'text' },
-                
-                // Creator fields
-                uploader: { label: 'Creator', format: 'text' },
-                uploader_url: { label: 'Creator URL', format: 'url' },
-                channel: { label: 'Channel', format: 'text' },
-                channel_url: { label: 'Channel URL', format: 'url' },
-                channel_follower_count: { label: 'Followers', format: 'number' },
-                
-                // Engagement fields
-                view_count: { label: 'Views', format: 'number' },
-                like_count: { label: 'Likes', format: 'number' },
-                dislike_count: { label: 'Dislikes', format: 'number' },
-                comment_count: { label: 'Comments', format: 'number' },
-                repost_count: { label: 'Reposts', format: 'number' },
-                average_rating: { label: 'Rating', format: 'text' },
-                age_limit: { label: 'Age Limit', format: 'text' },
-                
-                // Categorization fields
-                categories: { label: 'Categories', format: 'tags' },
-                tags: { label: 'Tags', format: 'tags', wide: true },
-                genres: { label: 'Genres', format: 'tags' },
-                playlist: { label: 'Playlist', format: 'text' },
-                
-                // Audio fields
-                track: { label: 'Track', format: 'text' },
-                artist: { label: 'Artist', format: 'text' },
-                album: { label: 'Album', format: 'text' },
-                composer: { label: 'Composer', format: 'text' },
-                genre: { label: 'Genre', format: 'text' },
-                
-                // Technical fields
-                extractor: { label: 'Platform', format: 'text' },
-                format: { label: 'Format', format: 'text' },
-                resolution: { label: 'Resolution', format: 'resolution' },
-                fps: { label: 'FPS', format: 'text' },
-                vcodec: { label: 'Video Codec', format: 'text' },
-                acodec: { label: 'Audio Codec', format: 'text' },
-                
-                // Location
-                location: { label: 'Location', format: 'text' },
-                
-                // Live
-                live_status: { label: 'Live Status', format: 'text' },
-                availability: { label: 'Availability', format: 'text' },
-            };
             
-            // Formatters for different data types
-            const formatters = {
-                text: (v) => escapeHtml(String(v)),
-                number: (v) => Number(v).toLocaleString(),
-                date: (v) => {
-                    if (!v) return null;
-                    if (typeof v === 'string' && v.length === 8) {
-                        return `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`;
-                    }
-                    return v;
-                },
-                duration: (v) => {
-                    if (!v) return null;
-                    const hrs = Math.floor(v / 3600);
-                    const mins = Math.floor((v % 3600) / 60);
-                    const secs = Math.floor(v % 60);
-                    if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
-                    if (mins > 0) return `${mins}m ${secs}s`;
-                    return `${secs}s`;
-                },
-                url: (v) => `<a href="${escapeHtml(v)}" target="_blank" rel="noopener" style="color: #64b5f6; word-break: break-all;">${escapeHtml(v)}</a>`,
-                tags: (v) => {
-                    if (!Array.isArray(v) || v.length === 0) return null;
-                    return v.slice(0, 15).map(t => 
-                        `<span class="meta-tag">${escapeHtml(t)}</span>`
-                    ).join('') + (v.length > 15 ? `<span class="meta-tag">+${v.length - 15} more</span>` : '');
-                },
-                description: (v) => {
-                    if (!v) return null;
-                    const escaped = escapeHtml(v);
-                    return `<div class="meta-description">${escaped}</div>`;
-                },
-                resolution: (v, data) => {
-                    if (data.width && data.height) {
-                        return `${data.width}x${data.height}`;
-                    }
-                    return v || null;
-                }
-            };
+            downloadBtn.href = streamUrl;
+            downloadBtn.download = video.filename;
             
-            // Category display configuration
-            const categories = [
-                { key: 'basic', title: 'Content Info', icon: '📄', fields: ['title', 'description', 'duration', 'upload_date', 'release_date', 'webpage_url'] },
-                { key: 'creator', title: 'Creator', icon: '👤', fields: ['uploader', 'channel', 'uploader_url', 'channel_url', 'channel_follower_count'] },
-                { key: 'engagement', title: 'Engagement', icon: '📊', fields: ['view_count', 'like_count', 'dislike_count', 'comment_count', 'repost_count', 'average_rating'] },
-                { key: 'categorization', title: 'Categories', icon: '🏷️', fields: ['categories', 'tags', 'genres', 'playlist'] },
-                { key: 'audio', title: 'Audio/Music', icon: '🎵', fields: ['track', 'artist', 'album', 'composer', 'genre'] },
-                { key: 'technical', title: 'Technical', icon: '⚙️', fields: ['extractor', 'format', 'resolution', 'fps', 'vcodec', 'acodec'] },
-                { key: 'location', title: 'Location', icon: '📍', fields: ['location'] },
-                { key: 'live', title: 'Live Info', icon: '🔴', fields: ['live_status', 'availability'] },
-            ];
-            
-            // Helper to get value from nested category data
-            function getValue(categoryKey, fieldKey) {
-                const category = meta[categoryKey];
-                if (!category || typeof category !== 'object') return null;
-                return category[fieldKey];
-            }
-            
-            // Render field item
-            function renderField(fieldKey, value, categoryData) {
-                if (value === null || value === undefined || value === '' || 
-                    (Array.isArray(value) && value.length === 0)) {
-                    return '';
-                }
-                
-                const config = fieldConfig[fieldKey] || { label: fieldKey, format: 'text' };
-                const formatter = formatters[config.format] || formatters.text;
-                const formatted = formatter(value, categoryData || {});
-                
-                if (!formatted) return '';
-                
-                const wideClass = config.wide ? ' style="grid-column: 1 / -1;"' : '';
-                return `<div class="detail-item"${wideClass}>
-                    <div class="detail-label">${config.label}</div>
-                    <div class="detail-value">${formatted}</div>
-                </div>`;
-            }
-            
-            let html = '';
-            
-            // Add file info at the top
-            html += `<div class="detail-item">
-                <div class="detail-label">File Size</div>
-                <div class="detail-value">${video.size_formatted}</div>
-            </div>`;
-            html += `<div class="detail-item">
-                <div class="detail-label">Downloaded</div>
-                <div class="detail-value">${video.modified_formatted}</div>
-            </div>`;
-            
-            // Render each category with content
-            for (const cat of categories) {
-                const categoryData = meta[cat.key];
-                if (!categoryData || typeof categoryData !== 'object') continue;
-                
-                // Check if category has any non-empty values
-                let categoryHtml = '';
-                for (const fieldKey of cat.fields) {
-                    const value = categoryData[fieldKey];
-                    categoryHtml += renderField(fieldKey, value, categoryData);
-                }
-                
-                if (categoryHtml) {
-                    html += `<div class="meta-category" style="grid-column: 1 / -1;">
-                        <div class="meta-category-header">${cat.icon} ${cat.title}</div>
-                        <div class="meta-category-content">${categoryHtml}</div>
-                    </div>`;
-                }
-            }
-            
-            // Subtitle info
-            if (meta.has_subtitles && meta.subtitle_languages && meta.subtitle_languages.length > 0) {
-                html += `<div class="detail-item" style="grid-column: 1 / -1;">
-                    <div class="detail-label">Subtitles Available</div>
-                    <div class="detail-value">${meta.subtitle_languages.map(l => `<span class="meta-tag">${escapeHtml(l)}</span>`).join('')}</div>
-                </div>`;
-            }
-            
-            container.innerHTML = html;
+            modal.classList.add('active');
         }
         
         function closeModal() {
@@ -2571,59 +1785,6 @@ def _get_browse_html() -> str:
         function closeModalOnOverlay(event) {
             if (event.target.id === 'modal-overlay') {
                 closeModal();
-            }
-        }
-        
-        async function archiveCurrentVideo() {
-            if (!currentVideo) return;
-            
-            const archiveBtn = document.getElementById('archive-btn');
-            
-            // Confirm archive
-            if (!confirm(`Archive "${currentVideo.filename}"?\n\nThe video and its metadata will be moved to the archived folder.`)) {
-                return;
-            }
-            
-            // Disable button and show loading state
-            archiveBtn.disabled = true;
-            archiveBtn.textContent = '📦 Archiving...';
-            
-            try {
-                const response = await fetch(`/api/v1/downloads/archive/${encodeURIComponent(currentVideo.path)}`, {
-                    method: 'POST'
-                });
-                
-                if (!response.ok) {
-                    const data = await response.json();
-                    throw new Error(data.detail || 'Failed to archive');
-                }
-                
-                const result = await response.json();
-                
-                // Show success
-                archiveBtn.textContent = '✓ Archived';
-                archiveBtn.classList.remove('btn-warning');
-                archiveBtn.classList.add('btn-secondary');
-                
-                // Reload the video list after a short delay
-                setTimeout(() => {
-                    closeModal();
-                    loadVideos();
-                    loadFolderStructure();
-                }, 1000);
-                
-            } catch (error) {
-                console.error('Archive error:', error);
-                archiveBtn.textContent = '❌ Failed';
-                archiveBtn.disabled = false;
-                
-                setTimeout(() => {
-                    archiveBtn.textContent = '📦 Archive';
-                    archiveBtn.classList.remove('btn-secondary');
-                    archiveBtn.classList.add('btn-warning');
-                }, 2000);
-                
-                alert('Failed to archive: ' + error.message);
             }
         }
         
@@ -2712,49 +1873,12 @@ def _get_browse_html() -> str:
                                     ${escapeHtml(item.error_message)}
                                 </div>
                             ` : ''}
-                            ${section === 'failed' ? `
-                                <div class="queue-item-actions">
-                                    <button class="btn-retry" onclick="retryDownload('${item.id}')" id="retry-${item.id}">
-                                        🔄 Retry
-                                    </button>
-                                </div>
-                            ` : ''}
                         </div>
                     </div>
                 `;
             }
             
             container.innerHTML = html;
-        }
-        
-        async function retryDownload(downloadId) {
-            const btn = document.getElementById(`retry-${downloadId}`);
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '⏳ Retrying...';
-            }
-            
-            try {
-                const response = await fetch(`/api/v1/downloads/retry/${downloadId}`, {
-                    method: 'POST'
-                });
-                
-                if (!response.ok) {
-                    const data = await response.json();
-                    throw new Error(data.detail?.message || 'Failed to retry');
-                }
-                
-                // Reload queue to show updated status
-                await loadQueue();
-                
-            } catch (error) {
-                console.error('Error retrying download:', error);
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '❌ Failed - Click to retry';
-                }
-                alert('Failed to retry download: ' + error.message);
-            }
         }
         
         function updateQueueBadge() {

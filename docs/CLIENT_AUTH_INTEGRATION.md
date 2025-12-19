@@ -105,3 +105,6 @@ When auth is enabled and token is missing/invalid:
 - `expires_at` can be null (never expires) or a future datetime
 - The password is universal (same for all users)
 - Auth is **optional** - server works without it when disabled
+
+
+
