@@ -54,7 +54,7 @@ async def require_auth(request: Request) -> bool:
     
     Returns True if authenticated, raises HTTPException otherwise.
     
-    Accepts token from:
+    Accepts token from (in priority order):
     - Cookie: session_token
     - Header: Authorization: Bearer <token>
     - Query param: ?token=<token> (for video streaming where headers can't be set)

@@ -211,14 +211,16 @@ async def authentication_middleware(request: Request, call_next):
     if is_public:
         return await call_next(request)
     
-    # Extract token from Authorization header or cookie
+    # Extract token from Authorization header, cookie, or query param
+    # Query param support is needed for video streaming where headers can't be set
     token = None
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:]
-    else:
-        # Try to get from cookie
+    elif request.cookies.get("session_token"):
         token = request.cookies.get("session_token")
+    elif request.query_params.get("token"):
+        token = request.query_params.get("token")
     
     # Helper to check if request is from a browser (wants HTML)
     def is_browser_request():
