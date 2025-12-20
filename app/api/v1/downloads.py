@@ -53,6 +53,11 @@ async def require_auth(request: Request) -> bool:
     """Always require auth for downloads browser, regardless of global setting.
     
     Returns True if authenticated, raises HTTPException otherwise.
+    
+    Accepts token from:
+    - Cookie: session_token
+    - Header: Authorization: Bearer <token>
+    - Query param: ?token=<token> (for video streaming where headers can't be set)
     """
     config = get_config()
     
@@ -66,8 +71,12 @@ async def require_auth(request: Request) -> bool:
             }
         )
     
-    # Get token from cookie or header
-    token = request.cookies.get("session_token") or extract_bearer_token(request)
+    # Get token from cookie, header, or query param (for streaming support)
+    token = (
+        request.cookies.get("session_token") 
+        or extract_bearer_token(request)
+        or request.query_params.get("token")
+    )
     
     if not token:
         raise HTTPException(
