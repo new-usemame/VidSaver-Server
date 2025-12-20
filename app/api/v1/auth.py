@@ -256,11 +256,26 @@ async def login_page(redirect: str = "/"):
             font-size: 48px;
             margin-bottom: 10px;
         }}
+        
+        .back-link {{
+            display: inline-block;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+            margin-bottom: 15px;
+            transition: color 0.2s;
+        }}
+        
+        .back-link:hover {{
+            color: #764ba2;
+            text-decoration: underline;
+        }}
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="header">
+            <a href="/" class="back-link">← Home</a>
             <div class="logo">🔐</div>
             <h1>Video Server</h1>
             <p>Enter your password to continue</p>
@@ -910,7 +925,7 @@ async def sessions_page():
     <div class="container">
         <div class="header">
             <h1>Sessions & Activity Log</h1>
-            <a href="/api/v1/config/editor" class="back-btn">← Back to Config</a>
+            <a href="/" class="back-btn">← Home</a>
         </div>
         
         <div class="content">
