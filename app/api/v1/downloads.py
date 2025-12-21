@@ -8,6 +8,7 @@ GET /api/v1/downloads/stream/{path} - Stream/download a file
 SECURITY: This module ALWAYS requires authentication, even if global auth is disabled.
 """
 
+import asyncio
 import logging
 import os
 import mimetypes
@@ -383,19 +384,87 @@ async def get_videos_list(
     }
 
 
+def parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
+    """Parse HTTP Range header and return start/end byte positions.
+    
+    Supports formats:
+    - bytes=0-499 (first 500 bytes)
+    - bytes=500-999 (second 500 bytes)
+    - bytes=-500 (last 500 bytes)
+    - bytes=500- (from byte 500 to end)
+    
+    Returns (start, end) as inclusive byte positions.
+    """
+    if not range_header.startswith("bytes="):
+        raise ValueError("Invalid Range header format")
+    
+    range_spec = range_header[6:]  # Remove "bytes="
+    
+    if range_spec.startswith("-"):
+        # Suffix range: last N bytes
+        suffix_length = int(range_spec[1:])
+        start = max(0, file_size - suffix_length)
+        end = file_size - 1
+    elif range_spec.endswith("-"):
+        # Open-ended range: from start to end of file
+        start = int(range_spec[:-1])
+        end = file_size - 1
+    else:
+        # Standard range: start-end
+        parts = range_spec.split("-")
+        start = int(parts[0])
+        end = int(parts[1]) if parts[1] else file_size - 1
+    
+    # Clamp values to valid range
+    start = max(0, min(start, file_size - 1))
+    end = max(start, min(end, file_size - 1))
+    
+    return start, end
+
+
+async def range_file_generator(file_path: Path, start: int, end: int, chunk_size: int = 65536):
+    """Async generator that yields file chunks for a byte range.
+    
+    Reads file in chunks to avoid loading entire file into memory.
+    Uses asyncio.to_thread to avoid blocking the event loop.
+    """
+    def read_range():
+        """Read file range in chunks (runs in thread pool)."""
+        chunks = []
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = end - start + 1
+            while remaining > 0:
+                chunk = f.read(min(chunk_size, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+        return chunks
+    
+    chunks = await asyncio.to_thread(read_range)
+    for chunk in chunks:
+        yield chunk
+
+
 @router.get(
     "/stream/{file_path:path}",
     summary="Stream Video File",
-    description="Stream or download a video file from the downloads directory.",
+    description="Stream or download a video file from the downloads directory. Supports HTTP Range requests for iOS AVPlayer compatibility.",
     responses={
-        200: {"description": "File streamed successfully"},
+        200: {"description": "Full file returned"},
+        206: {"description": "Partial content returned (Range request)"},
         401: {"description": "Authentication required"},
         403: {"description": "Access forbidden"},
-        404: {"description": "File not found"}
+        404: {"description": "File not found"},
+        416: {"description": "Range not satisfiable"}
     }
 )
 async def stream_file(request: Request, file_path: str):
-    """Stream a video file from the downloads directory.
+    """Stream a video file from the downloads directory with Range request support.
+    
+    This endpoint supports HTTP Range requests (Accept-Ranges: bytes) which is
+    required for iOS AVPlayer video streaming.
     
     Security:
     - Always requires authentication
@@ -436,16 +505,60 @@ async def stream_file(request: Request, file_path: str):
             detail="File type not allowed"
         )
     
+    # Get file info
+    file_size = full_path.stat().st_size
+    
     # Determine content type
     content_type, _ = mimetypes.guess_type(str(full_path))
     if not content_type:
         content_type = "application/octet-stream"
     
-    # Return file response with streaming
+    # Check for Range header (required for iOS AVPlayer)
+    range_header = request.headers.get("Range")
+    
+    if range_header:
+        # Handle Range request - return partial content (HTTP 206)
+        try:
+            start, end = parse_range_header(range_header, file_size)
+        except (ValueError, IndexError) as e:
+            logger.warning(f"Invalid Range header: {range_header} - {e}")
+            raise HTTPException(
+                status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                detail="Invalid Range header",
+                headers={"Content-Range": f"bytes */{file_size}"}
+            )
+        
+        # Validate range
+        if start >= file_size:
+            raise HTTPException(
+                status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                detail="Range start beyond file size",
+                headers={"Content-Range": f"bytes */{file_size}"}
+            )
+        
+        content_length = end - start + 1
+        
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(content_length),
+            "Content-Disposition": f'inline; filename="{full_path.name}"',
+        }
+        
+        return StreamingResponse(
+            range_file_generator(full_path, start, end),
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type=content_type,
+            headers=headers
+        )
+    
+    # No Range header - return full file with Accept-Ranges header
+    # This tells clients (like AVPlayer) that Range requests are supported
     return FileResponse(
         path=str(full_path),
         media_type=content_type,
-        filename=full_path.name
+        filename=full_path.name,
+        headers={"Accept-Ranges": "bytes"}
     )
 
 
