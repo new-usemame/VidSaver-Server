@@ -52,6 +52,119 @@ def _get_ffmpeg_path() -> Tuple[bool, Optional[str]]:
     return False, None
 
 
+def _is_vp9_video(filepath: str) -> bool:
+    """Check if video file uses VP9 codec (not iOS compatible).
+    
+    VP9 is a Google codec that plays fine on desktop but iOS doesn't support it natively.
+    This function reads the MP4 file header to detect VP9 codec signatures.
+    
+    Args:
+        filepath: Path to the video file
+        
+    Returns:
+        True if VP9 codec detected, False otherwise
+    """
+    try:
+        with open(filepath, 'rb') as f:
+            # Read first 8KB - codec info is in the moov/trak atoms near the start
+            data = f.read(8192)
+            # Check for VP9 codec signatures in MP4 container
+            return b'vp09' in data or b'vp9 ' in data
+    except Exception as e:
+        logger.debug(f"VP9 detection failed for {filepath}: {e}")
+        return False
+
+
+def _transcode_to_h264(input_path: str, ffmpeg_path: Optional[str] = None) -> Tuple[bool, str]:
+    """Transcode VP9 video to H.264 for iOS compatibility.
+    
+    Uses ffmpeg to re-encode the video stream to H.264 while copying the audio.
+    The original VP9 file is deleted after successful transcoding.
+    
+    Args:
+        input_path: Path to the VP9 video file
+        ffmpeg_path: Optional path to ffmpeg binary (if not in system PATH)
+        
+    Returns:
+        Tuple of (success, result) where result is:
+        - On success: path to the new H.264 file
+        - On failure: error message
+    """
+    import subprocess
+    
+    # Determine ffmpeg command
+    ffmpeg_cmd = ffmpeg_path if ffmpeg_path else 'ffmpeg'
+    
+    # Create output filename (same name, we'll replace the original)
+    output_path = input_path + '.h264.mp4'
+    
+    try:
+        # FFmpeg command for VP9 -> H.264 transcoding
+        # -c:v libx264: Use H.264 codec for video
+        # -crf 23: Constant Rate Factor (18-28 is good, 23 is default)
+        # -preset medium: Balance between speed and compression
+        # -c:a copy: Copy audio stream without re-encoding
+        # -movflags +faststart: Optimize for web streaming
+        cmd = [
+            ffmpeg_cmd,
+            '-i', input_path,
+            '-c:v', 'libx264',
+            '-crf', '23',
+            '-preset', 'medium',
+            '-c:a', 'copy',
+            '-movflags', '+faststart',
+            '-y',  # Overwrite output file if exists
+            output_path
+        ]
+        
+        logger.info(f"Transcoding VP9 to H.264: {input_path}")
+        
+        # Run ffmpeg
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout for long videos
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg transcoding failed: {result.stderr}")
+            # Clean up partial output
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            return False, f"FFmpeg error: {result.stderr[:200]}"
+        
+        # Verify output file exists and has size
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            return False, "Transcoding produced empty or missing file"
+        
+        # Replace original with transcoded version
+        original_size = os.path.getsize(input_path)
+        new_size = os.path.getsize(output_path)
+        
+        # Remove original VP9 file
+        os.remove(input_path)
+        
+        # Rename transcoded file to original name
+        os.rename(output_path, input_path)
+        
+        logger.info(f"VP9->H.264 transcoding complete: {original_size} -> {new_size} bytes")
+        
+        return True, input_path
+        
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg transcoding timed out")
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        return False, "Transcoding timed out after 10 minutes"
+        
+    except Exception as e:
+        logger.error(f"Transcoding error: {e}", exc_info=True)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        return False, str(e)
+
+
 class DownloadWorker:
     """Background worker for processing video downloads
     
@@ -248,23 +361,27 @@ class DownloadWorker:
             # Choose format based on ffmpeg availability
             # - With ffmpeg: can merge separate video+audio streams (better quality for YouTube)
             # - Without ffmpeg: must use pre-merged streams only
-            # Codec preference: H.264 (avc1) > H.265 (hvc1) > any (including AV1)
-            # H.264/H.265 are universally playable; AV1 requires special players like VLC
+            # Codec preference: H.264 (avc1) > H.265 (hvc1/hev1) > non-VP9 > any
+            # H.264/H.265 are iOS compatible; VP9 is NOT (will be transcoded as fallback)
             if ffmpeg_available:
                 format_selector = (
-                    'bestvideo[vcodec^=avc1]+bestaudio/'  # Prefer H.264
-                    'bestvideo[vcodec^=hvc1]+bestaudio/'  # Then H.265
-                    'bestvideo+bestaudio/'                 # Then any codec (AV1, VP9, etc.)
-                    'best'                                 # Finally single stream
+                    'bestvideo[vcodec^=avc1]+bestaudio/'     # Prefer H.264 (best iOS compat)
+                    'bestvideo[vcodec^=hvc1]+bestaudio/'     # Then H.265/HEVC
+                    'bestvideo[vcodec^=hev1]+bestaudio/'     # HEVC alternate identifier
+                    'bestvideo[vcodec!*=vp9][vcodec!*=vp09]+bestaudio/'  # Any except VP9
+                    'bestvideo+bestaudio/'                   # Last resort: any codec (VP9 will be transcoded)
+                    'best'                                   # Finally single stream
                 )
-                logger.debug("ffmpeg available - using merge format selector with H.264/H.265 preference")
+                logger.debug("ffmpeg available - using merge format selector with iOS codec preference")
             else:
                 format_selector = (
-                    'best[vcodec^=avc1]/'  # Prefer H.264
-                    'best[vcodec^=hvc1]/'  # Then H.265  
-                    'best'                  # Then any
+                    'best[vcodec^=avc1]/'   # Prefer H.264
+                    'best[vcodec^=hvc1]/'   # Then H.265
+                    'best[vcodec^=hev1]/'   # HEVC alternate
+                    'best[vcodec!*=vp9]/'   # Any except VP9
+                    'best'                   # Last resort
                 )
-                logger.info("ffmpeg not available - using single-stream format")
+                logger.info("ffmpeg not available - using single-stream format with iOS codec preference")
             
             ydl_opts = {
                 'outtmpl': os.path.join(
@@ -340,12 +457,30 @@ class DownloadWorker:
                 if os.path.exists(filename):
                     file_size = os.path.getsize(filename)
                 
+                # Check for VP9 codec and transcode to H.264 if needed (iOS compatibility)
+                was_transcoded = False
+                if os.path.exists(filename) and _is_vp9_video(filename):
+                    logger.info(f"Detected VP9 codec in {filename} - transcoding to H.264 for iOS compatibility")
+                    
+                    if ffmpeg_available:
+                        success, transcode_result = _transcode_to_h264(filename, ffmpeg_path)
+                        if success:
+                            filename = transcode_result
+                            file_size = os.path.getsize(filename)
+                            was_transcoded = True
+                            logger.info(f"VP9 successfully transcoded to H.264: {os.path.basename(filename)}")
+                        else:
+                            logger.warning(f"VP9 transcoding failed: {transcode_result}. Video may not play on iOS.")
+                    else:
+                        logger.warning("VP9 video detected but ffmpeg not available for transcoding. Video may not play on iOS.")
+                
                 result = {
                     'success': True,
                     'filename': os.path.basename(filename),
                     'file_size': file_size,
                     'title': info.get('title', 'Unknown'),
                     'duration': info.get('duration', 0),
+                    'was_transcoded': was_transcoded,
                 }
                 
                 # Include detected genre if different
