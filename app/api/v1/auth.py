@@ -40,6 +40,25 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
+def is_https_request(request: Request) -> bool:
+    """Check if the current request was made over HTTPS.
+    
+    Important: This checks the actual request protocol, not the global SSL config.
+    In dual-server mode (HTTPS + HTTP), we need to set secure cookies only for HTTPS.
+    
+    Checks:
+    1. X-Forwarded-Proto header (when behind reverse proxy)
+    2. Request URL scheme
+    """
+    # Check forwarded proto header (used by reverse proxies)
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "").lower()
+    if forwarded_proto:
+        return forwarded_proto == "https"
+    
+    # Check the request URL scheme directly
+    return request.url.scheme == "https"
+
+
 # Request/Response models
 class LoginRequest(BaseModel):
     """Login request with password"""
@@ -438,16 +457,22 @@ async def login(
         # Very long expiry for "never expires" (10 years)
         max_age = 10 * 365 * 24 * 3600
     
+    # IMPORTANT: Set secure=True only if THIS request is over HTTPS
+    # In dual-server mode (HTTPS on port X, HTTP on port X-1), we must check
+    # the actual protocol, not the global SSL config. Otherwise, cookies set
+    # via HTTP won't be sent back (browsers don't send secure cookies over HTTP).
+    is_secure = is_https_request(request)
+    
     response.set_cookie(
         key="session_token",
         value=token,
         httponly=True,
-        secure=config.server.ssl.enabled,  # Only secure if HTTPS
+        secure=is_secure,  # Only secure if THIS request is HTTPS
         samesite="lax",
         max_age=max_age
     )
     
-    logger.info(f"Login successful {request_id}: Session {session_id} created for {ip_address}")
+    logger.info(f"Login successful {request_id}: Session {session_id} created for {ip_address} (secure_cookie={is_secure})")
     
     return LoginResponse(
         success=True,
