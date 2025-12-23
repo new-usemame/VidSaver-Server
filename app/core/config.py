@@ -120,26 +120,6 @@ class ServerConfig(BaseSettings):
             return "0.0.0.0"
 
 
-class DatabaseConfig(BaseSettings):
-    """Database configuration"""
-    
-    path: str = Field(
-        default="data/downloads.db",
-        description="Path to SQLite database file"
-    )
-    
-    model_config = SettingsConfigDict(
-        env_prefix="VIDEO_SERVER_DB_",
-        case_sensitive=False
-    )
-    
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, v: str) -> str:
-        """Expand user home directory in path"""
-        return os.path.expanduser(v)
-
-
 class DownloadsConfig(BaseSettings):
     """Downloads configuration"""
     
@@ -352,7 +332,6 @@ class Config(BaseSettings):
     """
     
     server: ServerConfig = Field(default_factory=lambda: ServerConfig(_env_file=None))
-    database: DatabaseConfig = Field(default_factory=lambda: DatabaseConfig(_env_file=None))
     downloads: DownloadsConfig = Field(default_factory=lambda: DownloadsConfig(_env_file=None))
     downloader: DownloaderConfig = Field(default_factory=lambda: DownloaderConfig(_env_file=None))
     auth: AuthConfig = Field(default_factory=lambda: AuthConfig(_env_file=None))
@@ -413,7 +392,6 @@ class Config(BaseSettings):
         
         return cls(
             server=server_config,
-            database=DatabaseConfig(**config_data.get('database', {})),
             downloads=DownloadsConfig(**config_data.get('downloads', {})),
             downloader=DownloaderConfig(**config_data.get('downloader', {})),
             auth=AuthConfig(**config_data.get('auth', {})),
@@ -470,9 +448,6 @@ class Config(BaseSettings):
                     'key_file': self.server.ssl.key_file,
                 },
             },
-            'database': {
-                'path': self.database.path,
-            },
             'downloads': {
                 'root_directory': self.downloads.root_directory,
                 'max_concurrent': self.downloads.max_concurrent,
@@ -516,14 +491,6 @@ class Config(BaseSettings):
             List of validation errors (empty if all valid)
         """
         errors = []
-        
-        # Check database directory
-        db_dir = Path(self.database.path).parent
-        if not db_dir.exists():
-            try:
-                db_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                errors.append(f"Cannot create database directory: {e}")
         
         # Check downloads root directory
         download_dir = Path(self.downloads.root_directory)

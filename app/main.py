@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     
     # Log configuration
     logger.info(f"Server: {config.server.host}:{config.server.port}")
-    logger.info(f"Database: {config.database.path}")
+    logger.info(f"Storage: File-based (JSON)")
     logger.info(f"Downloads folder: {config.downloads.root_directory}")
     logger.info(f"Max concurrent downloads: {config.downloads.max_concurrent}")
     logger.info(f"Log level: {config.logging.level}")

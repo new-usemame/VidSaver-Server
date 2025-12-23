@@ -50,14 +50,6 @@ server:
     key_file: "certs/server.key"
 
 # ============================================
-# Database Configuration
-# ============================================
-database:
-  # Path to SQLite database file
-  # Supports ~ for home directory expansion
-  path: "data/downloads.db"
-
-# ============================================
 # Downloads Configuration
 # ============================================
 downloads:

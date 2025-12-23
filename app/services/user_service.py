@@ -80,6 +80,8 @@ class UserService:
         
         Creates:
         - {root}/{username}/
+        - {root}/{username}/_queue/
+        - {root}/{username}/_failed/
         - {root}/{username}/tiktok/
         - {root}/{username}/instagram/
         - {root}/{username}/youtube/
@@ -100,6 +102,10 @@ class UserService:
             # Create user root directory
             user_dir = self.root_directory / username
             user_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create queue and failed folders
+            (user_dir / '_queue').mkdir(parents=True, exist_ok=True)
+            (user_dir / '_failed').mkdir(parents=True, exist_ok=True)
             
             # Create genre subdirectories
             genres = ['tiktok', 'instagram', 'youtube', 'pdf', 'ebook', 'unknown']
@@ -156,9 +162,14 @@ class UserService:
         if not user_dir.exists():
             return self.create_user_directories(username)
         
-        # User dir exists, ensure all genre subdirectories exist
-        genres = ['tiktok', 'instagram', 'youtube', 'pdf', 'ebook', 'unknown']
+        # User dir exists, ensure all subdirectories exist
         try:
+            # Ensure queue and failed folders
+            (user_dir / '_queue').mkdir(parents=True, exist_ok=True)
+            (user_dir / '_failed').mkdir(parents=True, exist_ok=True)
+            
+            # Ensure genre subdirectories
+            genres = ['tiktok', 'instagram', 'youtube', 'pdf', 'ebook', 'unknown']
             for genre in genres:
                 genre_dir = self.get_genre_directory(username, genre)
                 genre_dir.mkdir(parents=True, exist_ok=True)

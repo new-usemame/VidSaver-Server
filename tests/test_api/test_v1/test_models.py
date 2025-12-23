@@ -21,41 +21,39 @@ class TestDownloadRequest:
         """Test valid TikTok URL"""
         request = DownloadRequest(
             url="https://www.tiktok.com/@user/video/1234567890",
+            username="testuser",
             client_id="test-client"
         )
         assert request.url == "https://www.tiktok.com/@user/video/1234567890"
+        assert request.username == "testuser"
         assert request.client_id == "test-client"
     
     def test_valid_instagram_url(self):
         """Test valid Instagram URL"""
         request = DownloadRequest(
-            url="https://www.instagram.com/reel/ABC123xyz/"
+            url="https://www.instagram.com/reel/ABC123xyz/",
+            username="testuser"
         )
         assert "instagram.com" in request.url
     
     def test_valid_tiktok_short_url(self):
         """Test valid TikTok short URL"""
         request = DownloadRequest(
-            url="https://vm.tiktok.com/ZMhxyz123/"
+            url="https://vm.tiktok.com/ZMhxyz123/",
+            username="testuser"
         )
         assert "vm.tiktok.com" in request.url
     
     def test_invalid_url_format(self):
         """Test invalid URL format"""
         with pytest.raises(ValidationError) as exc_info:
-            DownloadRequest(url="not-a-valid-url")
+            DownloadRequest(url="not-a-valid-url", username="testuser")
         assert "Invalid URL format" in str(exc_info.value)
-    
-    def test_unsupported_domain(self):
-        """Test unsupported domain"""
-        with pytest.raises(ValidationError) as exc_info:
-            DownloadRequest(url="https://www.youtube.com/watch?v=123")
-        assert "Domain not supported" in str(exc_info.value)
     
     def test_url_too_short(self):
         """Test URL too short"""
         with pytest.raises(ValidationError) as exc_info:
-            DownloadRequest(url="http://a")
+            DownloadRequest(url="http://a", username="testuser")
         errors = exc_info.value.errors()
         assert any("at least 10 characters" in str(e) for e in errors)
     
@@ -63,26 +61,27 @@ class TestDownloadRequest:
         """Test URL too long"""
         long_url = "https://www.tiktok.com/" + "x" * 3000
         with pytest.raises(ValidationError) as exc_info:
-            DownloadRequest(url=long_url)
+            DownloadRequest(url=long_url, username="testuser")
         errors = exc_info.value.errors()
         assert any("at most 2048 characters" in str(e) for e in errors)
     
     def test_optional_client_id(self):
         """Test client_id is optional"""
-        request = DownloadRequest(url="https://www.tiktok.com/@user/video/1234567890")
+        request = DownloadRequest(url="https://www.tiktok.com/@user/video/1234567890", username="testuser")
         assert request.client_id is None
     
     def test_empty_client_id_becomes_none(self):
         """Test empty client_id becomes None"""
         request = DownloadRequest(
             url="https://www.tiktok.com/@user/video/1234567890",
+            username="testuser",
             client_id="   "
         )
         assert request.client_id is None
     
     def test_http_protocol_allowed(self):
         """Test HTTP (non-secure) protocol is allowed"""
-        request = DownloadRequest(url="http://www.tiktok.com/@user/video/1234567890")
+        request = DownloadRequest(url="http://www.tiktok.com/@user/video/1234567890", username="testuser")
         assert request.url.startswith("http://")
 
 
@@ -97,11 +96,15 @@ class TestDownloadResponse:
             download_id="550e8400-e29b-41d4-a716-446655440000",
             message="Download queued successfully",
             status="pending",
+            username="testuser",
+            genre="tiktok",
             submitted_at=now
         )
         assert response.success is True
         assert response.download_id == "550e8400-e29b-41d4-a716-446655440000"
         assert response.status == "pending"
+        assert response.username == "testuser"
+        assert response.genre == "tiktok"
         assert response.submitted_at == now
     
     def test_response_serialization(self):
@@ -112,6 +115,8 @@ class TestDownloadResponse:
             download_id="test-id",
             message="Test message",
             status="pending",
+            username="testuser",
+            genre="tiktok",
             submitted_at=now
         )
         json_data = response.model_dump()
@@ -129,6 +134,8 @@ class TestStatusResponse:
             download_id="test-id",
             url="https://www.tiktok.com/@user/video/123",
             status="pending",
+            username="testuser",
+            genre="tiktok",
             submitted_at=now
         )
         assert response.status == "pending"
@@ -143,6 +150,8 @@ class TestStatusResponse:
             download_id="test-id",
             url="https://www.tiktok.com/@user/video/123",
             status="completed",
+            username="testuser",
+            genre="tiktok",
             submitted_at=now,
             started_at=now,
             completed_at=now,
@@ -160,6 +169,8 @@ class TestStatusResponse:
             download_id="test-id",
             url="https://www.tiktok.com/@user/video/123",
             status="failed",
+            username="testuser",
+            genre="tiktok",
             submitted_at=now,
             started_at=now,
             error_message="Network error"
@@ -223,4 +234,3 @@ class TestErrorResponse:
         assert response.error == "validation_error"
         assert response.request_id == "test-request-id"
         assert response.details["field"] == "url"
-

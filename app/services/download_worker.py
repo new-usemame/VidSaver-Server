@@ -1,7 +1,7 @@
 """Download Worker Service
 
 Background worker that processes video download queue using yt-dlp.
-Monitors database for pending downloads and processes them asynchronously.
+Monitors queue folders for pending downloads and processes them asynchronously.
 """
 
 import logging
@@ -15,10 +15,11 @@ from datetime import datetime
 
 import yt_dlp
 
-from app.services.database_service import DatabaseService
+from app.services.file_storage_service import FileStorageService, QueueItem
 from app.services.genre_detector import GenreDetector
 from app.services.user_service import UserService
-from app.models.database import Download, DownloadStatus, User
+from app.services.metadata_service import extract_metadata, save_metadata
+from app.models.database import DownloadStatus
 from app.core.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -169,21 +170,20 @@ class DownloadWorker:
     """Background worker for processing video downloads
     
     This worker:
-    1. Polls database for pending downloads
+    1. Scans user _queue/ folders for pending downloads
     2. Downloads videos using yt-dlp
     3. Organizes files by username and genre
-    4. Updates database with status and progress
-    5. Handles errors and retries
+    4. Updates queue JSON with status and progress
+    5. Moves failed downloads to _failed/ folder
+    6. Deletes queue JSON on completion (metadata saved separately)
     """
     
-    def __init__(self, db_path: str, root_dir: str):
+    def __init__(self, root_dir: str):
         """Initialize download worker
         
         Args:
-            db_path: Path to SQLite database
             root_dir: Root directory for all user folders
         """
-        self.db_path = db_path
         self.root_dir = root_dir
         self.running = False
         self.thread: Optional[threading.Thread] = None
@@ -192,7 +192,8 @@ class DownloadWorker:
         # Create root directory if it doesn't exist
         Path(root_dir).mkdir(parents=True, exist_ok=True)
         
-        # Initialize user service
+        # Initialize services
+        self.storage = FileStorageService(root_dir)
         self.user_service = UserService(root_dir)
         
         logger.info(f"DownloadWorker initialized: root_dir={root_dir}")
@@ -202,6 +203,11 @@ class DownloadWorker:
         if self.running:
             logger.warning("Worker already running")
             return
+        
+        # Reset any stale downloads from previous run
+        stale_count = self.storage.reset_stale_downloads()
+        if stale_count > 0:
+            logger.info(f"Reset {stale_count} stale downloads from previous run")
         
         self.running = True
         self.thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -227,16 +233,14 @@ class DownloadWorker:
         
         while self.running:
             try:
-                # Get next pending download
-                db = DatabaseService(db_path=self.db_path)
-                pending_downloads = db.get_downloads_by_status(DownloadStatus.PENDING)
-                db.close_connection()
+                # Get next pending download from all user queues
+                pending_downloads = self.storage.get_pending_downloads(limit=1)
                 
                 if pending_downloads:
                     # Process first pending download
-                    download = pending_downloads[0]
-                    logger.info(f"Processing download: {download.id}")
-                    self._process_download(download)
+                    item = pending_downloads[0]
+                    logger.info(f"Processing download: {item.id}")
+                    self._process_download(item)
                 else:
                     # No pending downloads, sleep
                     time.sleep(self.poll_interval)
@@ -245,111 +249,97 @@ class DownloadWorker:
                 logger.error(f"Error in worker loop: {e}", exc_info=True)
                 time.sleep(self.poll_interval)
     
-    def _process_download(self, download: Download):
+    def _process_download(self, item: QueueItem):
         """Process a single download
         
         Args:
-            download: Download object to process
+            item: QueueItem to process
         """
-        download_id = download.id
+        download_id = item.id
+        username = item.username
         
         try:
-            # Get user info for folder structure
-            db = DatabaseService(db_path=self.db_path)
-            user = db.get_user_by_id(download.user_id)
-            
-            if not user:
-                logger.error(f"User ID {download.user_id} not found for download {download_id}")
-                db.update_download_status(
-                    download_id=download_id,
-                    status=DownloadStatus.FAILED,
-                    error_message="User not found"
-                )
-                db.close_connection()
-                return
-            
             # Update status to downloading
-            db.update_download_status(
+            self.storage.update_download_status(
                 download_id=download_id,
-                status=DownloadStatus.DOWNLOADING,
+                username=username,
+                status=DownloadStatus.DOWNLOADING.value,
                 started_at=int(time.time())
             )
-            db.close_connection()
             
-            logger.info(f"Starting download {download_id}: {download.url} (user: {user.username}, genre: {download.genre})")
+            logger.info(f"Starting download {download_id}: {item.url} (user: {username}, genre: {item.genre})")
             
             # Download video using yt-dlp
-            result = self._download_video(download.url, download_id, user, download.genre)
+            result = self._download_video(item.url, download_id, username, item.genre)
             
             if result['success']:
                 # Update genre if yt-dlp provided better detection
-                final_genre = result.get('detected_genre', download.genre)
+                final_genre = result.get('detected_genre', item.genre)
                 
-                # Update status to completed
-                db = DatabaseService(db_path=self.db_path)
-                db.update_download_status(
+                # Save metadata JSON sidecar
+                if result.get('info'):
+                    metadata = extract_metadata(result['info'])
+                    video_path = os.path.join(
+                        str(self.user_service.get_genre_directory(username, final_genre)),
+                        result['filename']
+                    )
+                    save_metadata(video_path, metadata)
+                
+                # Update status to completed (will be removed from queue)
+                self.storage.update_download_status(
                     download_id=download_id,
-                    status=DownloadStatus.COMPLETED,
+                    username=username,
+                    status=DownloadStatus.COMPLETED.value,
                     completed_at=int(time.time()),
                     filename=result['filename'],
                     file_size=result['file_size'],
-                    genre=final_genre if final_genre != download.genre else None,
+                    genre=final_genre if final_genre != item.genre else None,
                     genre_detection_error=result.get('genre_detection_error')
                 )
-                db.close_connection()
+                
+                # Remove from queue (it's completed)
+                self.storage.complete_download(download_id, username)
                 
                 logger.info(
                     f"Download completed {download_id}: "
                     f"{result['filename']} ({result['file_size']} bytes)"
                 )
             else:
-                # Update status to failed
-                db = DatabaseService(db_path=self.db_path)
-                db.update_download_status(
-                    download_id=download_id,
-                    status=DownloadStatus.FAILED,
-                    error_message=result['error']
-                )
-                db.close_connection()
+                # Move to failed folder
+                self.storage.move_to_failed(download_id, username, result['error'])
                 
                 logger.error(f"Download failed {download_id}: {result['error']}")
         
         except Exception as e:
             logger.error(f"Error processing download {download_id}: {e}", exc_info=True)
             
-            # Update status to failed
+            # Move to failed folder
             try:
-                db = DatabaseService(db_path=self.db_path)
-                db.update_download_status(
-                    download_id=download_id,
-                    status=DownloadStatus.FAILED,
-                    error_message=str(e)
-                )
-                db.close_connection()
-            except Exception as db_error:
-                logger.error(f"Failed to update error status: {db_error}")
+                self.storage.move_to_failed(download_id, username, str(e))
+            except Exception as move_error:
+                logger.error(f"Failed to move download to failed folder: {move_error}")
     
-    def _download_video(self, url: str, download_id: str, user: User, genre: str) -> Dict[str, Any]:
+    def _download_video(self, url: str, download_id: str, username: str, genre: str) -> Dict[str, Any]:
         """Download video using yt-dlp with user/genre folder structure
         
         Args:
             url: Video URL to download
             download_id: Unique download identifier
-            user: User object
+            username: Username for folder structure
             genre: Current genre (may be updated based on yt-dlp info)
             
         Returns:
-            Dict with success status, filename, file_size, detected_genre, or error
+            Dict with success status, filename, file_size, detected_genre, info, or error
         """
         try:
             # Ensure user directories exist
-            self.user_service.ensure_user_directories(user.username)
+            self.user_service.ensure_user_directories(username)
             
             # Sanitize download_id for filename
             safe_id = download_id.replace('-', '_')[:8]
             
             # Get genre-specific directory
-            genre_dir = self.user_service.get_genre_directory(user.username, genre)
+            genre_dir = self.user_service.get_genre_directory(username, genre)
             
             # yt-dlp options
             # Note: Title is truncated to 80 chars to avoid macOS 255-byte filename limit
@@ -436,7 +426,7 @@ class DownloadWorker:
                     
                     # Move file to correct genre folder if it exists
                     if os.path.exists(old_filename):
-                        new_genre_dir = self.user_service.get_genre_directory(user.username, final_genre)
+                        new_genre_dir = self.user_service.get_genre_directory(username, final_genre)
                         new_genre_dir.mkdir(parents=True, exist_ok=True)
                         new_filename = os.path.join(str(new_genre_dir), os.path.basename(old_filename))
                         
@@ -481,6 +471,7 @@ class DownloadWorker:
                     'title': info.get('title', 'Unknown'),
                     'duration': info.get('duration', 0),
                     'was_transcoded': was_transcoded,
+                    'info': info,  # Include full info for metadata extraction
                 }
                 
                 # Include detected genre if different
@@ -518,7 +509,6 @@ def start_worker():
     
     config = get_config()
     _worker_instance = DownloadWorker(
-        db_path=config.database.path,
         root_dir=config.downloads.root_directory
     )
     _worker_instance.start()
@@ -544,4 +534,3 @@ def get_worker() -> Optional[DownloadWorker]:
         DownloadWorker instance or None
     """
     return _worker_instance
-

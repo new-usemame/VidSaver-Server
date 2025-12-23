@@ -13,7 +13,6 @@ from pathlib import Path
 from app.core.config import (
     Config,
     ServerConfig,
-    DatabaseConfig,
     DownloadsConfig,
     DownloaderConfig,
     SecurityConfig,
@@ -68,21 +67,6 @@ class TestServerConfig:
             ServerConfig(port=65536)
         with pytest.raises(ValueError):
             ServerConfig(port=-1)
-
-
-class TestDatabaseConfig:
-    """Test DatabaseConfig model"""
-    
-    def test_default_values(self):
-        """Test default database configuration"""
-        config = DatabaseConfig()
-        assert config.path == "data/downloads.db"
-    
-    def test_path_expansion(self):
-        """Test home directory expansion"""
-        config = DatabaseConfig(path="~/test/db.sqlite")
-        assert "~" not in config.path
-        assert config.path.startswith(os.path.expanduser("~"))
 
 
 class TestDownloadsConfig:
@@ -208,7 +192,7 @@ class TestLoggingConfig:
         assert config.level == "INFO"
         assert config.file == "logs/server.log"
         assert config.max_size == "10MB"
-        assert config.backup_count == 5
+        assert config.backup_count == 15
     
     def test_log_level_validation(self):
         """Test log level validation"""
@@ -278,7 +262,6 @@ class TestConfigLoading:
         config = Config()
         
         assert config.server.port == 58443
-        assert config.database.path == "data/downloads.db"
         assert config.downloads.max_concurrent == 1
         assert config.logging.level == "INFO"
     
@@ -289,9 +272,6 @@ class TestConfigLoading:
             'server': {
                 'access_level': 'localhost',
                 'port': 9443,
-            },
-            'database': {
-                'path': '/tmp/test.db',
             },
             'logging': {
                 'level': 'DEBUG',
@@ -308,7 +288,6 @@ class TestConfigLoading:
             assert config.server.access_level == "localhost"
             assert config.server.host == "127.0.0.1"  # resolved from access_level
             assert config.server.port == 9443
-            assert config.database.path == "/tmp/test.db"
             assert config.logging.level == "DEBUG"
             
             # Unspecified values should use defaults
@@ -379,7 +358,6 @@ class TestConfigValidation:
                     key_file=str(tmp_path / "nonexistent_key.pem")
                 )
             ),
-            database=DatabaseConfig(path=str(tmp_path / "test.db")),
             downloads=DownloadsConfig(root_directory=str(tmp_path / "downloads")),
             logging=LoggingConfig(file=str(tmp_path / "logs" / "test.log"))
         )
@@ -522,7 +500,6 @@ class TestEdgeCases:
             assert config.server.port == 9443
             
             # Missing sections should use defaults
-            assert config.database.path == "data/downloads.db"
             assert config.logging.level == "INFO"
         finally:
             os.unlink(config_path)

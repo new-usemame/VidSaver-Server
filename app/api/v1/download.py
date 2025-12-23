@@ -11,10 +11,9 @@ from fastapi import APIRouter, Request, HTTPException, status
 from pydantic import ValidationError
 
 from app.api.v1.models import DownloadRequest, DownloadResponse, ErrorResponse
-from app.services.database_service import DatabaseService
+from app.services.file_storage_service import FileStorageService, QueueItem
 from app.services.genre_detector import detect_genre
-from app.services.user_service import UserService
-from app.models.database import DownloadStatus, Download
+from app.models.database import DownloadStatus
 from app.core.config import get_config
 import time
 
@@ -54,9 +53,9 @@ async def submit_download(
     This endpoint:
     1. Validates the URL and username
     2. Detects content genre from URL
-    3. Gets or creates user account
+    3. Ensures user directories exist
     4. Generates a unique download_id
-    5. Persists to database (BEFORE responding)
+    5. Persists to queue JSON file (BEFORE responding)
     6. Returns confirmation in < 500ms
     
     The actual download happens asynchronously in the background queue.
@@ -70,7 +69,7 @@ async def submit_download(
         
     Raises:
         HTTPException 400: Invalid URL, username, or validation error
-        HTTPException 500: Database error
+        HTTPException 500: Storage error
     """
     request_id = getattr(request.state, "request_id", "unknown")
     
@@ -90,40 +89,35 @@ async def submit_download(
     genre, genre_detection_error = detect_genre(download_request.url)
     logger.info(f"Genre detected: {genre}" + (f" (error: {genre_detection_error})" if genre_detection_error else ""))
     
-    # Persist to database BEFORE responding (zero data loss requirement)
+    # Persist to queue JSON BEFORE responding (zero data loss requirement)
     try:
         config = get_config()
-        db = DatabaseService(db_path=config.database.path)
+        storage = FileStorageService(root_directory=config.downloads.root_directory)
         
-        # Get or create user (auto-creation)
-        user = db.get_or_create_user(download_request.username)
-        logger.info(f"User: {user.username} (ID: {user.id})")
+        # Normalize username and ensure directories exist
+        username = download_request.username.lower()
+        storage.ensure_user_directories(username)
+        logger.info(f"User: {username}")
         
-        # Ensure user directories exist
-        user_service = UserService(config.downloads.root_directory)
-        user_service.ensure_user_directories(user.username)
-        
-        # Create Download object
-        download = Download(
+        # Create QueueItem
+        queue_item = QueueItem(
             id=download_id,
             url=download_request.url,
-            status=DownloadStatus.PENDING,
-            client_id=download_request.client_id or "unknown",  # Default if not provided
-            user_id=user.id,
+            status=DownloadStatus.PENDING.value,
+            client_id=download_request.client_id or "unknown",
+            username=username,
             genre=genre,
             genre_detection_error=genre_detection_error,
             created_at=int(submitted_at.timestamp()),
             last_updated=int(submitted_at.timestamp())
         )
         
-        # Create download record in database
-        db.create_download(download=download, auto_commit=True)
-        
-        db.close_connection()
+        # Create download record in queue
+        storage.create_download(queue_item)
         
         logger.info(
-            f"Download {download_id} persisted to database: "
-            f"status=pending, user_id={user.id}, genre={genre}"
+            f"Download {download_id} persisted to queue: "
+            f"status=pending, username={username}, genre={genre}"
         )
     
     except Exception as e:
@@ -134,7 +128,7 @@ async def submit_download(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "error": "database_error",
+                "error": "storage_error",
                 "message": "Failed to save download request. Please try again.",
                 "request_id": request_id
             }
@@ -151,8 +145,7 @@ async def submit_download(
         download_id=download_id,
         message="Download queued successfully",
         status=DownloadStatus.PENDING,
-        username=download_request.username,
+        username=username,
         genre=genre,
         submitted_at=submitted_at
     )
-
