@@ -90,7 +90,7 @@ async def require_auth(request: Request) -> bool:
         )
     
     # Validate session
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     is_valid, session_id = auth_service.validate_session(token)
     
     if not is_valid:
@@ -663,7 +663,7 @@ async def browse_downloads_page(request: Request):
         return RedirectResponse(url=login_url, status_code=status.HTTP_302_FOUND)
     
     # Validate session
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     is_valid, session_id = auth_service.validate_session(token)
     
     if not is_valid:

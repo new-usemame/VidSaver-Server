@@ -255,7 +255,7 @@ async def authentication_middleware(request: Request, call_next):
     
     # Import auth service and validate session
     from app.services.auth_service import get_auth_service
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     
     is_valid, session_id = auth_service.validate_session(token)
     if not is_valid:

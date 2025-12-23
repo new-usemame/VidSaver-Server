@@ -414,7 +414,7 @@ async def login(
         )
     
     # Get auth service
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     
     # Verify password
     if not auth_service.verify_password(login_request.password, config.auth.password_hash):
@@ -518,7 +518,7 @@ async def logout(
         token = session_token
     
     if token:
-        auth_service = get_auth_service(config.auth.session_timeout_hours)
+        auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
         
         # Get session ID before invalidating
         is_valid, session_id = auth_service.validate_session(token, update_last_used=False)
@@ -587,7 +587,7 @@ async def verify_session(
             message="No session token provided"
         )
     
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     
     is_valid, session_id = auth_service.validate_session(token)
     if is_valid:
@@ -614,7 +614,7 @@ async def verify_session(
 async def list_sessions() -> SessionsListResponse:
     """Get all active sessions"""
     config = get_config()
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     
     sessions = auth_service.get_all_sessions()
     
@@ -633,7 +633,7 @@ async def list_sessions() -> SessionsListResponse:
 async def revoke_session(session_id: int, request: Request):
     """Revoke a specific session"""
     config = get_config()
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     ip_address = get_client_ip(request)
     user_agent = request.headers.get("User-Agent")
     
@@ -660,7 +660,7 @@ async def revoke_session(session_id: int, request: Request):
 async def revoke_all_sessions(request: Request):
     """Revoke all active sessions"""
     config = get_config()
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     ip_address = get_client_ip(request)
     user_agent = request.headers.get("User-Agent")
     
@@ -690,7 +690,7 @@ async def get_activity_log(
 ) -> ActivityLogResponse:
     """Get activity log entries"""
     config = get_config()
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     
     entries, total = auth_service.get_activity_log(
         limit=limit,
@@ -713,7 +713,7 @@ async def get_activity_log(
 async def clear_activity_log(request: Request):
     """Clear all activity log entries"""
     config = get_config()
-    auth_service = get_auth_service(config.auth.session_timeout_hours)
+    auth_service = get_auth_service(session_timeout_hours=config.auth.session_timeout_hours)
     ip_address = get_client_ip(request)
     
     count = auth_service.clear_activity_log()
