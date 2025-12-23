@@ -53,7 +53,6 @@ cd VideoDownloadServer
 **Note:** Git will automatically exclude:
 - `venv/` (will create fresh)
 - `config/config.yaml` (will create from template)
-- `data/*.db` (will initialize)
 - `certs/*.pem` (will obtain from Let's Encrypt)
 - Log files, cache files, etc.
 
@@ -87,7 +86,6 @@ Perform @ProductionSetup.mdc
 - ✅ Create virtual environment
 - ✅ Install all dependencies
 - ✅ Create `config/config.yaml` with your settings
-- ✅ Initialize database (`data/downloads.db`)
 - ✅ Obtain Let's Encrypt SSL certificates
 - ✅ Configure macOS firewall
 - ✅ Test server startup
@@ -236,13 +234,6 @@ lsof -i :58443
 source venv/bin/activate
 python server.py
 # Look for error messages
-```
-
-### Issue: Database not found
-```bash
-# Re-initialize database
-source venv/bin/activate
-python scripts/init_database.py
 ```
 
 ---

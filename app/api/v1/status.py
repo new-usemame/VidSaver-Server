@@ -10,42 +10,40 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, status, Path
 
 from app.api.v1.models import StatusResponse, ErrorResponse
-from app.services.database_service import DatabaseService
-from app.models.database import Download
+from app.services.file_storage_service import FileStorageService, QueueItem
 from app.core.config import get_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _download_to_status_response(download: Download, username: str) -> StatusResponse:
-    """Convert Download database model to StatusResponse API model
+def _queue_item_to_status_response(item: QueueItem) -> StatusResponse:
+    """Convert QueueItem to StatusResponse API model
     
     Args:
-        download: Download database object
-        username: Username for this download
+        item: QueueItem from file storage
         
     Returns:
         StatusResponse with all relevant fields
     """
     # Convert timestamps from Unix epoch to datetime
-    submitted_at = datetime.fromtimestamp(download.created_at)
-    started_at = datetime.fromtimestamp(download.started_at) if download.started_at else None
-    completed_at = datetime.fromtimestamp(download.completed_at) if download.completed_at else None
+    submitted_at = datetime.fromtimestamp(item.created_at)
+    started_at = datetime.fromtimestamp(item.started_at) if item.started_at else None
+    completed_at = datetime.fromtimestamp(item.completed_at) if item.completed_at else None
     
     return StatusResponse(
-        download_id=download.id,
-        url=download.url,
-        status=download.status,
-        username=username,
-        genre=download.genre,
+        download_id=item.id,
+        url=item.url,
+        status=item.status,
+        username=item.username,
+        genre=item.genre,
         submitted_at=submitted_at,
         started_at=started_at,
         completed_at=completed_at,
-        file_path=download.filename,
-        file_size=download.file_size,
-        error_message=download.error_message,
-        genre_detection_error=download.genre_detection_error
+        file_path=item.filename,
+        file_size=item.file_size,
+        error_message=item.error_message,
+        genre_detection_error=item.genre_detection_error
     )
 
 
@@ -81,8 +79,8 @@ async def get_download_status(
 ) -> StatusResponse:
     """Get the status of a specific download
     
-    This endpoint queries the database for the download record and returns
-    its current status, including:
+    This endpoint searches the queue and failed folders for the download record
+    and returns its current status, including:
     - Current status (pending, downloading, completed, failed)
     - Submission and completion timestamps
     - File location (if completed)
@@ -97,7 +95,7 @@ async def get_download_status(
         
     Raises:
         HTTPException 404: Download ID not found
-        HTTPException 500: Database error
+        HTTPException 500: Storage error
     """
     request_id = getattr(request.state, "request_id", "unknown")
     
@@ -122,15 +120,15 @@ async def get_download_status(
             }
         )
     
-    # Query database
+    # Search queue and failed folders
     try:
         config = get_config()
-        db = DatabaseService(db_path=config.database.path)
+        storage = FileStorageService(root_directory=config.downloads.root_directory)
         
-        download = db.get_download(download_id)
+        # Search all users for this download
+        item = storage.get_download(download_id)
         
-        if download is None:
-            db.close_connection()
+        if item is None:
             logger.warning(
                 f"Download not found {request_id}: {download_id}"
             )
@@ -143,27 +141,12 @@ async def get_download_status(
                 }
             )
         
-        # Get user info for response
-        user = db.get_user_by_id(download.user_id)
-        db.close_connection()
-        
-        if not user:
-            logger.error(f"User ID {download.user_id} not found for download {download_id}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "error": "data_integrity_error",
-                    "message": "Download user information is missing.",
-                    "request_id": request_id
-                }
-            )
-        
         logger.info(
             f"Status retrieved {request_id}: "
-            f"download_id={download_id} status={download.status} user={user.username}"
+            f"download_id={download_id} status={item.status} user={item.username}"
         )
         
-        return _download_to_status_response(download, user.username)
+        return _queue_item_to_status_response(item)
     
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -177,9 +160,8 @@ async def get_download_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "error": "database_error",
+                "error": "storage_error",
                 "message": "Failed to retrieve download status. Please try again.",
                 "request_id": request_id
             }
         )
-

@@ -45,8 +45,6 @@ cp config/config.yaml.example config/config.yaml
 python manage.py start
 ```
 
-> **Note:** The database initializes automatically on first run.
-
 **That's it!** The server is now running at `http://0.0.0.0:58443`
 
 ---

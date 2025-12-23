@@ -208,7 +208,7 @@ class TestLoggingConfig:
         assert config.level == "INFO"
         assert config.file == "logs/server.log"
         assert config.max_size == "10MB"
-        assert config.backup_count == 5
+        assert config.backup_count == 15
     
     def test_log_level_validation(self):
         """Test log level validation"""

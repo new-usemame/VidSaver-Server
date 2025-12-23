@@ -35,7 +35,7 @@ python manage.py start
 python server.py &
 ```
 
-> **Note:** Database initializes automatically. SSL certificates are optional for local network.
+> **Note:** SSL certificates are optional for local network.
 
 ## Step 5: Test
 ```bash

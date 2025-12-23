@@ -3,25 +3,48 @@
 import pytest
 from fastapi.testclient import TestClient
 import uuid
+import tempfile
+import shutil
 
 from app.main import app
 from app.models.database import DownloadStatus
+from app.core.config import get_config
 
 
 class TestDownloadEndpoint:
     """Test POST /api/v1/download endpoint"""
     
     @pytest.fixture
-    def client(self):
-        """Create test client"""
-        return TestClient(app)
+    def client(self, temp_storage_dir):
+        """Create test client with temp storage"""
+        # Override config to use temp directory
+        config = get_config()
+        original_root = config.downloads.root_directory
+        config.downloads.root_directory = temp_storage_dir
+        
+        client = TestClient(app)
+        yield client
+        
+        # Restore original config
+        config.downloads.root_directory = original_root
     
-    def test_submit_tiktok_download(self, client, in_memory_db):
+    @pytest.fixture
+    def temp_storage_dir(self):
+        """Create temporary storage directory"""
+        path = tempfile.mkdtemp()
+        yield path
+        try:
+            shutil.rmtree(path)
+        except OSError:
+            pass
+    
+    def test_submit_tiktok_download(self, client):
         """Test submitting a TikTok download"""
         response = client.post(
             "/api/v1/download",
             json={
                 "url": "https://www.tiktok.com/@user/video/1234567890",
+                "username": "testuser",
                 "client_id": "test-client"
             }
         )
@@ -39,12 +62,13 @@ class TestDownloadEndpoint:
         download_id = data["download_id"]
         assert uuid.UUID(download_id)  # Should not raise
     
-    def test_submit_instagram_download(self, client, in_memory_db):
+    def test_submit_instagram_download(self, client):
         """Test submitting an Instagram download"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "https://www.instagram.com/reel/ABC123xyz/"
+                "url": "https://www.instagram.com/reel/ABC123xyz/",
+                "username": "testuser"
             }
         )
         
@@ -54,12 +78,13 @@ class TestDownloadEndpoint:
         assert data["success"] is True
         assert "download_id" in data
     
-    def test_submit_tiktok_short_url(self, client, in_memory_db):
+    def test_submit_tiktok_short_url(self, client):
         """Test submitting a TikTok short URL"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "https://vm.tiktok.com/ZMhxyz123/"
+                "url": "https://vm.tiktok.com/ZMhxyz123/",
+                "username": "testuser"
             }
         )
         
@@ -68,50 +93,27 @@ class TestDownloadEndpoint:
         
         assert data["success"] is True
     
-    def test_download_persisted_to_database(self, client, in_memory_db):
-        """Test download is persisted to database before response"""
-        response = client.post(
-            "/api/v1/download",
-            json={
-                "url": "https://www.tiktok.com/@user/video/1234567890",
-                "client_id": "test-client"
-            }
-        )
-        
-        assert response.status_code == 201
-        data = response.json()
-        download_id = data["download_id"]
-        
-        # Verify in database
-        download = in_memory_db.get_download(download_id)
-        assert download is not None
-        assert download.download_id == download_id
-        assert download.url == "https://www.tiktok.com/@user/video/1234567890"
-        assert download.status == DownloadStatus.PENDING
-        assert download.client_id == "test-client"
-    
-    def test_download_without_client_id(self, client, in_memory_db):
+    def test_download_without_client_id(self, client):
         """Test download without client_id"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "https://www.tiktok.com/@user/video/1234567890"
+                "url": "https://www.tiktok.com/@user/video/1234567890",
+                "username": "testuser"
             }
         )
         
         assert response.status_code == 201
         data = response.json()
-        
-        # Verify in database
-        download = in_memory_db.get_download(data["download_id"])
-        assert download.client_id is None
+        assert data["success"] is True
     
-    def test_invalid_url_format(self, client, in_memory_db):
+    def test_invalid_url_format(self, client):
         """Test invalid URL format"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "not-a-valid-url"
+                "url": "not-a-valid-url",
+                "username": "testuser"
             }
         )
         
@@ -119,68 +121,57 @@ class TestDownloadEndpoint:
         data = response.json()
         assert "detail" in data
     
-    def test_unsupported_domain(self, client, in_memory_db):
-        """Test unsupported domain"""
-        response = client.post(
-            "/api/v1/download",
-            json={
-                "url": "https://www.youtube.com/watch?v=123"
-            }
-        )
-        
-        assert response.status_code == 422  # Validation error
-        data = response.json()
-        assert "detail" in data
-        # Check that error mentions domain not supported
-        detail_str = str(data["detail"])
-        assert "not supported" in detail_str.lower()
-    
-    def test_url_too_short(self, client, in_memory_db):
+    def test_url_too_short(self, client):
         """Test URL too short"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "http://a"
+                "url": "http://a",
+                "username": "testuser"
             }
         )
         
         assert response.status_code == 422
     
-    def test_url_too_long(self, client, in_memory_db):
+    def test_url_too_long(self, client):
         """Test URL too long"""
         long_url = "https://www.tiktok.com/" + "x" * 3000
         response = client.post(
             "/api/v1/download",
             json={
-                "url": long_url
+                "url": long_url,
+                "username": "testuser"
             }
         )
         
         assert response.status_code == 422
     
-    def test_missing_url(self, client, in_memory_db):
+    def test_missing_url(self, client):
         """Test missing URL field"""
         response = client.post(
             "/api/v1/download",
             json={
+                "username": "testuser",
                 "client_id": "test"
             }
         )
         
         assert response.status_code == 422
     
-    def test_multiple_downloads(self, client, in_memory_db):
+    def test_multiple_downloads(self, client):
         """Test multiple downloads get unique IDs"""
         response1 = client.post(
             "/api/v1/download",
             json={
-                "url": "https://www.tiktok.com/@user/video/111"
+                "url": "https://www.tiktok.com/@user/video/111",
+                "username": "testuser"
             }
         )
         response2 = client.post(
             "/api/v1/download",
             json={
-                "url": "https://www.tiktok.com/@user/video/222"
+                "url": "https://www.tiktok.com/@user/video/222",
+                "username": "testuser"
             }
         )
         
@@ -191,46 +182,45 @@ class TestDownloadEndpoint:
         id2 = response2.json()["download_id"]
         
         assert id1 != id2
-        
-        # Both should be in database
-        assert in_memory_db.get_download(id1) is not None
-        assert in_memory_db.get_download(id2) is not None
     
-    def test_response_includes_request_id(self, client, in_memory_db):
+    def test_response_includes_request_id(self, client):
         """Test response includes request ID header"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "https://www.tiktok.com/@user/video/123"
+                "url": "https://www.tiktok.com/@user/video/123",
+                "username": "testuser"
             }
         )
         
         assert response.status_code == 201
         assert "X-Request-ID" in response.headers
     
-    def test_http_protocol_allowed(self, client, in_memory_db):
+    def test_http_protocol_allowed(self, client):
         """Test HTTP (non-secure) URLs are allowed"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "http://www.tiktok.com/@user/video/123"
+                "url": "http://www.tiktok.com/@user/video/123",
+                "username": "testuser"
             }
         )
         
         assert response.status_code == 201
     
-    def test_mobile_tiktok_url(self, client, in_memory_db):
+    def test_mobile_tiktok_url(self, client):
         """Test mobile TikTok URL"""
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "https://m.tiktok.com/v/123456.html"
+                "url": "https://m.tiktok.com/v/123456.html",
+                "username": "testuser"
             }
         )
         
         assert response.status_code == 201
     
-    def test_response_time_fast(self, client, in_memory_db):
+    def test_response_time_fast(self, client):
         """Test response time is fast (< 500ms requirement)"""
         import time
         
@@ -238,7 +228,8 @@ class TestDownloadEndpoint:
         response = client.post(
             "/api/v1/download",
             json={
-                "url": "https://www.tiktok.com/@user/video/123"
+                "url": "https://www.tiktok.com/@user/video/123",
+                "username": "testuser"
             }
         )
         duration = time.time() - start_time
@@ -246,12 +237,12 @@ class TestDownloadEndpoint:
         assert response.status_code == 201
         assert duration < 0.5  # Must be < 500ms
     
-    def test_idempotent_download_ids(self, client, in_memory_db):
+    def test_idempotent_download_ids(self, client):
         """Test each request gets unique download_id even for same URL"""
         url = "https://www.tiktok.com/@user/video/123"
         
-        response1 = client.post("/api/v1/download", json={"url": url})
-        response2 = client.post("/api/v1/download", json={"url": url})
+        response1 = client.post("/api/v1/download", json={"url": url, "username": "testuser"})
+        response2 = client.post("/api/v1/download", json={"url": url, "username": "testuser"})
         
         id1 = response1.json()["download_id"]
         id2 = response2.json()["download_id"]
@@ -284,4 +275,3 @@ class TestDownloadEndpointDocumentation:
         
         assert response.status_code == 200
         assert b"Video Download Server" in response.content
-

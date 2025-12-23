@@ -12,7 +12,7 @@ A lightweight Python server for downloading videos from TikTok, Instagram, YouTu
 | **Queue System** | Background downloads with retry logic (1min → 5min → 15min) |
 | **Cross-Platform** | CLI + system tray app for Windows, macOS, and Linux |
 | **Multi-User** | Organize downloads by user with auto folder structure |
-| **Zero Data Loss** | URLs persisted to database before confirmation |
+| **Zero Data Loss** | URLs persisted to disk before confirmation |
 
 ## 🚀 Quick Start (3 Steps)
 
@@ -31,7 +31,7 @@ cp config/config.yaml.example config/config.yaml
 python manage.py start
 ```
 
-That's it! The database initializes automatically. Open the URL shown to access the web interface.
+That's it! Open the URL shown to access the web interface.
 
 ## 📱 iOS Setup
 
@@ -168,7 +168,6 @@ TikTok-Downloader-Server/
 │   ├── services/      # Business logic
 │   └── core/          # Config, logging
 ├── config/            # Configuration files
-├── data/              # SQLite database (auto-created)
 └── logs/              # Server logs (auto-rotated)
 ```
 

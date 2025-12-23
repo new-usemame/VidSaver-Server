@@ -10,7 +10,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Request
 
 from app.api.v1.models import HealthResponse
-from app.services.database_service import DatabaseService
+from app.services.file_storage_service import FileStorageService
 from app.core.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -35,32 +35,32 @@ async def health_check(request: Request) -> HealthResponse:
     
     logger.info(f"Health check request {request_id}")
     
-    # Check database connectivity
-    db_status: Dict[str, Any] = {
+    # Check storage status
+    storage_status: Dict[str, Any] = {
         "connected": False,
-        "total_downloads": 0
+        "queue_items": 0
     }
     
     try:
-        db = DatabaseService(db_path=config.database.path)
+        storage = FileStorageService(root_directory=config.downloads.root_directory)
         
-        # Test database connection by querying all downloads
-        downloads = db.get_all_downloads()
-        count = len(downloads)
-        db_status["connected"] = True
-        db_status["total_downloads"] = count
-        logger.debug(f"Database healthy: {count} downloads")
+        # Get queue counts
+        counts = storage.get_queue_counts()
+        storage_status["connected"] = True
+        storage_status["queue_items"] = counts["total"]
+        storage_status["pending"] = counts["pending"]
+        storage_status["downloading"] = counts["downloading"]
+        storage_status["failed"] = counts["failed"]
+        logger.debug(f"Storage healthy: {counts['total']} queue items")
         
-        db.close_connection()
     except Exception as e:
-        logger.error(f"Database health check failed: {e}")
-        db_status["connected"] = False
-        db_status["error"] = str(e)
+        logger.error(f"Storage health check failed: {e}")
+        storage_status["connected"] = False
+        storage_status["error"] = str(e)
     
     return HealthResponse(
-        status="healthy" if db_status["connected"] else "unhealthy",
+        status="healthy" if storage_status["connected"] else "unhealthy",
         timestamp=datetime.now(),
         version="1.0.0",
-        database=db_status
+        database=storage_status  # Keep field name for API compatibility
     )
-

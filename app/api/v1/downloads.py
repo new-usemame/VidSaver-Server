@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, Red
 from app.core.config import get_config
 from app.services.auth_service import get_auth_service
 from app.services.user_service import UserService
-from app.services.database_service import DatabaseService
+from app.services.file_storage_service import FileStorageService
 from app.models.database import DownloadStatus
 
 logger = logging.getLogger(__name__)
@@ -565,7 +565,7 @@ async def stream_file(request: Request, file_path: str):
 @router.get(
     "/queue",
     summary="Get Download Queue",
-    description="Returns pending, in-progress, and failed downloads from the database.",
+    description="Returns pending, in-progress, and failed downloads from queue folders.",
     responses={
         200: {"description": "Queue retrieved successfully"},
         401: {"description": "Authentication required"},
@@ -573,7 +573,7 @@ async def stream_file(request: Request, file_path: str):
     }
 )
 async def get_download_queue(request: Request):
-    """Get download queue status from database
+    """Get download queue status from file storage
     
     Returns downloads that are:
     - pending: Waiting to be processed
@@ -585,29 +585,20 @@ async def get_download_queue(request: Request):
     config = get_config()
     
     try:
-        db = DatabaseService(db_path=config.database.path)
+        storage = FileStorageService(root_directory=config.downloads.root_directory)
         
         # Get downloads by status
-        pending = db.get_downloads_by_status(DownloadStatus.PENDING, limit=50)
-        queued = db.get_downloads_by_status(DownloadStatus.QUEUED, limit=50)
-        downloading = db.get_downloads_by_status(DownloadStatus.DOWNLOADING, limit=10)
-        failed = db.get_downloads_by_status(DownloadStatus.FAILED, limit=50)
-        
-        # Combine pending and queued (they're essentially the same)
-        all_pending = pending + queued
-        
-        # Get usernames for all downloads
-        def get_username(user_id: int) -> str:
-            user = db.get_user_by_id(user_id)
-            return user.username if user else "unknown"
+        pending = storage.get_pending_downloads(limit=50)
+        downloading = storage.get_downloading(limit=10)
+        failed = storage.get_failed_downloads(limit=50)
         
         # Format download for response
         def format_download(d):
             return {
                 "id": d.id,
                 "url": d.url,
-                "status": d.status.value,
-                "username": get_username(d.user_id),
+                "status": d.status,
+                "username": d.username,
                 "genre": d.genre,
                 "error_message": d.error_message,
                 "retry_count": d.retry_count,
@@ -617,17 +608,15 @@ async def get_download_queue(request: Request):
                 "started_formatted": format_timestamp(d.started_at) if d.started_at else None,
             }
         
-        db.close_connection()
-        
         return {
             "downloading": [format_download(d) for d in downloading],
-            "pending": [format_download(d) for d in all_pending],
+            "pending": [format_download(d) for d in pending],
             "failed": [format_download(d) for d in failed],
             "counts": {
                 "downloading": len(downloading),
-                "pending": len(all_pending),
+                "pending": len(pending),
                 "failed": len(failed),
-                "total": len(downloading) + len(all_pending) + len(failed)
+                "total": len(downloading) + len(pending) + len(failed)
             }
         }
     

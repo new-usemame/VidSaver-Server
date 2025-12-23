@@ -504,7 +504,7 @@ def info(as_json: bool):
         'port': config.get('server', {}).get('port', 58443),
         'host': config.get('server', {}).get('host', '0.0.0.0'),
         'ssl_enabled': config.get('server', {}).get('ssl', {}).get('enabled', False),
-        'database': config.get('database', {}).get('path', 'data/downloads.db'),
+        'storage': 'file-based (JSON)',
         'downloads_dir': config.get('downloads', {}).get('root_directory', ''),
     }
     
